@@ -29,53 +29,67 @@ def render_header(google_users, status_df):
     st.divider()
 
     # --- SECOND ROW: Smart Search Bar ---
-    # We combine search & select into one smart dropdown
+    col_search, col_filter = st.columns([3, 1])
+
+    # 1. Render Filter Checkbox FIRST so we can use its value
+    with col_filter:
+        st.write("") # Alignment spacer
+        show_only_pending = st.checkbox("Hide Completed", value=False)
     
-    # 1. Prepare list for the dropdown (formatted nicely)
-    # Format: "Jonathan Mifsud (jonathan@buddy.hr)"
+    # 2. Prepare list for the dropdown
     user_options = []
     
-    # Sort users: Incomplete first, then by name
-    # We can't easily custom sort the dropdown key, so we just sort the list alphabetically for now
+    # Sort users alphabetically
     sorted_users = sorted(google_users.index.tolist())
 
-    # Create a mapping so we can look up the email from the display name
+    # Mapping to look up email from display name
     display_map = {}
+    
     for email in sorted_users:
+        # Check Status
+        s_text = "Not Started"
+        if email in status_df.index:
+            s_text = status_df.loc[email, "Status"]
+
+        # FILTER LOGIC: Skip if user is complete and checkbox is ticked
+        if show_only_pending and s_text == 'Complete':
+            continue
+
+        # Get Name
         row = google_users.loc[email]
         name = row.get('Admin-defined name', '')
         if pd.isna(name) or str(name).strip() == "":
             name = email.split('@')[0].title()
         
-        # Add a status emoji to the name
-        status = "⚪"
-        if email in status_df.index:
-            s_text = status_df.loc[email, "Status"]
-            if s_text == 'Complete': status = "✅"
-            elif s_text == 'In Progress': status = "🚧"
-            elif s_text == 'Issues': status = "🚩"
+        # --- NEW STATUS EMOJI MAPPING ---
+        if s_text == 'Complete': 
+            status_emoji = "✅"
+        elif s_text in ["Migration Run", "Migration setup completed"]: 
+            status_emoji = "🚀"
+        elif s_text == "Machine Audit Run":
+            status_emoji = "💻"
+        elif s_text == "Issues":
+            status_emoji = "🚩"
+        elif s_text == "In Progress": # Legacy support
+            status_emoji = "🚧"
+        else: 
+            status_emoji = "⚪"
         
-        display_label = f"{status} {name} | {email}"
+        display_label = f"{status_emoji} {name} | {email}"
         user_options.append(display_label)
         display_map[display_label] = email
 
-    # 2. Render the Selectbox in the main area (not sidebar)
-    col_search, col_filter = st.columns([3, 1])
-    
+    # 3. Render the Selectbox
     with col_search:
         selected_label = st.selectbox(
             "🔍 Find User", 
             options=user_options,
             index=None,
             placeholder="Type name or email to search...",
-            label_visibility="collapsed" # Hides the label text for a cleaner look
+            label_visibility="collapsed"
         )
 
-    with col_filter:
-        # Filter toggle
-        show_only_pending = st.checkbox("Hide Completed", value=False)
-
-    # 3. Return the actual email address of the selected user
+    # 4. Return the actual email address
     if selected_label:
         return display_map[selected_label]
     

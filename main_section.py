@@ -2,17 +2,47 @@ import streamlit as st
 import pandas as pd
 import os
 
-# --- STATUS FUNCTIONS (Moved here to keep logic together) ---
+# --- CONSTANTS ---
 STATUS_FILE = "status_tracker.csv"
+STATUS_OPTIONS = [
+    "Not Started",
+    "Machine Audit Run",
+    "Migration setup completed",
+    "Migration Run",
+    "Complete"
+]
 
+# --- STATUS FUNCTIONS ---
 def load_status():
+    """
+    Loads the status tracker CSV.
+    Handles backward compatibility if the 'EntraCreated' column is missing.
+    """
     if os.path.exists(STATUS_FILE):
-        return pd.read_csv(STATUS_FILE).set_index("User")
-    return pd.DataFrame(columns=["Status", "Notes"])
+        df = pd.read_csv(STATUS_FILE).set_index("User")
+        
+        # Ensure 'Status' column exists
+        if "Status" not in df.columns:
+            df["Status"] = "Not Started"
+            
+        # Ensure 'Notes' column exists
+        if "Notes" not in df.columns:
+            df["Notes"] = ""
 
-def save_status(email, status, notes):
+        # NEW: Ensure 'EntraCreated' column exists (for backward compatibility)
+        if "EntraCreated" not in df.columns:
+            df["EntraCreated"] = False
+            
+        return df
+    
+    # Create empty dataframe with new schema
+    return pd.DataFrame(columns=["Status", "Notes", "EntraCreated"])
+
+def save_status(email, status, notes, entra_created):
+    """Saves Status, Notes, and Entra Checkbox to CSV."""
     df = load_status()
-    df.loc[email] = [status, notes]
+    # Save all three values
+    df.loc[email] = [status, notes, entra_created]
     df.to_csv(STATUS_FILE, index_label="User")
 
 # --- RENDER FUNCTION ---
@@ -30,15 +60,21 @@ def render_main_section(selected_user, google_users, status_df):
         st.markdown(f"# 👤 {full_name}")
         st.markdown(f"**Email:** [{selected_user}](mailto:{selected_user})")
 
+    # --- TOP RIGHT: Status Badge ---
     with col_h2:
         curr_status = "Not Started"
         if selected_user in status_df.index:
             curr_status = status_df.loc[selected_user, "Status"]
         
-        if curr_status == "Complete": st.success("✅ COMPLETE")
-        elif curr_status == "In Progress": st.warning("🚧 IN PROGRESS")
-        elif curr_status == "Issues": st.error("🚩 ISSUES")
-        else: st.info("WAITING")
+        # Logic for new status colors
+        if curr_status == "Complete": 
+            st.success(f"✅ {curr_status}")
+        elif curr_status in ["Migration Run", "Migration setup completed"]: 
+            st.warning(f"🚀 {curr_status}")
+        elif curr_status == "Machine Audit Run":
+            st.info(f"💻 {curr_status}")
+        else: 
+            st.write(f"⚪ {curr_status}")
     
     st.divider()
 
@@ -47,13 +83,36 @@ def render_main_section(selected_user, google_users, status_df):
     # --- COLUMN 1: Workflow & Details ---
     with c1:
         st.subheader("📋 Workflow")
-        current_notes = status_df.loc[selected_user, "Notes"] if selected_user in status_df.index else ""
+        
+        # Get current values from tracker
+        current_notes = ""
+        current_entra = False
+        
+        if selected_user in status_df.index:
+            current_notes = status_df.loc[selected_user, "Notes"]
+            # Handle potential NaN/Missing boolean values safely
+            val = status_df.loc[selected_user, "EntraCreated"]
+            current_entra = bool(val) if pd.notna(val) else False
+
+        # Determine index for dropdown (handle case where old status isn't in new list)
+        try:
+            status_index = STATUS_OPTIONS.index(curr_status)
+        except ValueError:
+            status_index = 0
+
         with st.form("status_form"):
-            new_status = st.selectbox("Status", ["Not Started", "In Progress", "Issues", "Complete"], index=["Not Started", "In Progress", "Issues", "Complete"].index(curr_status))
+            # 1. Status Dropdown
+            new_status = st.selectbox("Status", STATUS_OPTIONS, index=status_index)
+            
+            # 2. MS Entra Checkbox
+            new_entra = st.checkbox("User created in MS Entra", value=current_entra)
+            
+            # 3. Notes
             new_notes = st.text_area("Engineer Notes", value=str(current_notes) if pd.notna(current_notes) else "", height=100)
             
+            # 4. Save Button
             if st.form_submit_button("💾 Save", use_container_width=True):
-                save_status(selected_user, new_status, new_notes)
+                save_status(selected_user, new_status, new_notes, new_entra)
                 st.rerun()
         
         st.divider()

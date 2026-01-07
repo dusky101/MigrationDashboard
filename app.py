@@ -107,6 +107,18 @@ def render_smart_path_input(title, icon, session_key, help_text):
 render_smart_path_input("Google Data", "📊", "google_path", "Folder with Google CSVs")
 render_smart_path_input("Audit Reports", "💻", "audit_path", "Folder with Swift App CSVs")
 
+# --- SIDEBAR: SHUTDOWN CONTROL (NEW) ---
+# Since we run with --windowed, users have no console to close. 
+# We MUST provide a way to kill the process.
+# st.sidebar.divider()
+st.sidebar.markdown("### 🛑 App Control")
+st.sidebar.caption("When finished, click below to close the application safely.")
+
+if st.sidebar.button("Quit Application", type="primary", use_container_width=True):
+    st.sidebar.warning("Shutting down... You can close this tab.")
+    # os._exit(0) forces an immediate, hard exit of the python process.
+    os._exit(0)
+
 # --- MAIN APP ORCHESTRATOR ---
 
 google_folder = st.session_state['google_path']
