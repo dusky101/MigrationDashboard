@@ -2,12 +2,15 @@ import streamlit as st
 import os
 import platform
 import json
+import pandas as pd
 from googleimports import load_google_data
 
-# --- IMPORT NEW MODULES ---
+# --- IMPORT MODULES ---
 from header import render_header
 from main_section import render_main_section, load_status
 from data_section import render_data_section
+from exporter import generate_excel_report
+from migrationaud import find_audit_file
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Migration Mission Control", layout="wide", page_icon="🚀")
@@ -17,8 +20,8 @@ st.markdown(
     """
     <style>
     [data-testid="stSidebar"] {
-        min-width: 300px;
-        max-width: 300px;
+        min-width: 320px;
+        max-width: 320px;
     }
     </style>
     """,
@@ -107,20 +110,7 @@ def render_smart_path_input(title, icon, session_key, help_text):
 render_smart_path_input("Google Data", "📊", "google_path", "Folder with Google CSVs")
 render_smart_path_input("Audit Reports", "💻", "audit_path", "Folder with Swift App CSVs")
 
-# --- SIDEBAR: SHUTDOWN CONTROL (NEW) ---
-# Since we run with --windowed, users have no console to close. 
-# We MUST provide a way to kill the process.
-# st.sidebar.divider()
-st.sidebar.markdown("### 🛑 App Control")
-st.sidebar.caption("When finished, click below to close the application safely.")
-
-if st.sidebar.button("Quit Application", type="primary", use_container_width=True):
-    st.sidebar.warning("Shutting down... You can close this tab.")
-    # os._exit(0) forces an immediate, hard exit of the python process.
-    os._exit(0)
-
 # --- MAIN APP ORCHESTRATOR ---
-
 google_folder = st.session_state['google_path']
 audit_folder = st.session_state['audit_path']
 
@@ -132,12 +122,39 @@ if not os.path.isdir(google_folder):
 
 with st.spinner("Loading Data..."):
     google_users = load_google_data(google_folder)
-    # Note: load_status is now imported from main_section.py
     status_df = load_status()
 
 if google_users.empty:
     st.warning(f"No CSV data found in: `{google_folder}`")
     st.stop()
+
+# --- STANDARD REPORTS ---
+st.sidebar.markdown("### 📥 Reports")
+if st.sidebar.button("Prepare Full Asset Register", help="Generates Excel for ALL users"):
+    with st.spinner("Generating..."):
+        excel_full = generate_excel_report(google_users, status_df, audit_folder)
+        st.session_state['full_excel'] = excel_full
+
+if 'full_excel' in st.session_state:
+    st.sidebar.download_button(
+        label="📄 Download Full Register",
+        data=st.session_state['full_excel'],
+        file_name="Full_Migration_Asset_Register.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        use_container_width=True
+    )
+
+st.sidebar.divider()
+
+# --- SIDEBAR: SHUTDOWN CONTROL ---
+st.sidebar.markdown("### 🛑 App Control")
+if st.sidebar.button("Quit Application", type="primary", use_container_width=True):
+    st.sidebar.warning("Shutting down...")
+    os._exit(0)
+
+# ==============================================================================
+#  MAIN DASHBOARD RENDER
+# ==============================================================================
 
 # 1. RENDER HEADER (Search & Progress)
 selected_user = render_header(google_users, status_df)
