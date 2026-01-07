@@ -23,14 +23,53 @@ def render_data_section(audit_folder, selected_user, google_users):
                     # Tabs: Specs, Apps, Network, Printers, Devices
                     t_specs, t_apps, t_net, t_print, t_dev = st.tabs(["🖥️ Specs", "📂 Apps", "☁️ Network", "🖨 Printers", "🔌 Devices"])
                     
+                    # --- 1. SYSTEM SPECS (Updated for Tahoe & RAM) ---
                     with t_specs:
                         st.caption("Hardware & System Details")
                         specs = audit_df[audit_df['TYPE'] == 'System Specifications']
+                        
                         if not specs.empty:
+                            # --- HERO METRICS EXTRACTION ---
+                            # Helper to safely grab values from the dataframe
+                            def get_spec(name_key):
+                                row = specs[specs['NAME'].astype(str).str.contains(name_key, case=False, na=False)]
+                                return row.iloc[0]['DETAILS'] if not row.empty else "N/A"
+
+                            # Extract key data points
+                            model = get_spec("Model Identifier")
+                            ram = get_spec("Memory") # Matches "Memory (RAM)" or "Physical Memory"
+                            serial = get_spec("Serial Number")
+                            tahoe = get_spec("Tahoe Support")
+
+                            # Display Top Row Metrics
+                            c1, c2, c3 = st.columns(3)
+                            c1.metric("Machine Model", model)
+                            c2.metric("Memory (RAM)", ram)
+                            c3.metric("Serial Number", serial)
+                            
+                            st.divider()
+
+                            # Display Tahoe Compliance Status visually
+                            # The CSV returns icons like "❌ Unsupported" or "✅ Supported"
+                            if "Unsupported" in tahoe:
+                                st.error(f"**AI Readiness:** {tahoe} (Hardware upgrade required)")
+                            elif "OS Only" in tahoe:
+                                st.warning(f"**AI Readiness:** {tahoe} (OS Update required for full features)")
+                            elif "Supported" in tahoe:
+                                st.success(f"**AI Readiness:** {tahoe}")
+                            else:
+                                # Fallback if field is missing or format is different
+                                st.info(f"**AI Readiness:** {tahoe}")
+
+                            st.divider()
+                            
+                            # Show full list (excluding the ones we just highlighted to save space? 
+                            # No, let's show all for completeness in case parsing misses something)
                             st.dataframe(specs[['NAME', 'DETAILS']], width="stretch", hide_index=True)
                         else:
                             st.info("No system specs found.")
 
+                    # --- 2. APPS ---
                     with t_apps:
                         col_app1, col_app2 = st.columns(2)
                         
@@ -77,6 +116,7 @@ def render_data_section(audit_folder, selected_user, google_users):
                             else:
                                 st.caption("Empty")
                     
+                    # --- 3. OTHER TABS ---
                     with t_net:
                         net = audit_df[audit_df['TYPE'] == 'Network & Storage']
                         if not net.empty: st.dataframe(net[['NAME', 'DETAILS']], width="stretch", hide_index=True)
