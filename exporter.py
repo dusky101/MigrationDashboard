@@ -62,8 +62,7 @@ def get_comprehensive_machine_data(audit_path):
     data['Peripherals'] = get_list(['External Peripherals', 'DEVICE', 'USB'])
     data['Network Interfaces'] = get_list(['Network & Storage'])
     
-    # --- CHANGE: RESTRICT TO ONLY 'Applications Folder' ---
-    # This filters out 'Detected Applications' (background noise)
+    # Restrict to only 'Applications Folder' to reduce noise
     data['Installed Apps'] = get_list(['Applications Folder']) 
 
     return data
@@ -82,9 +81,9 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
     master_df['Notes'] = master_df['Notes'].fillna('')
     master_df['EntraCreated'] = master_df['EntraCreated'].fillna(False).astype(bool)
 
-    # B. Enrich with Hardware Data & Build App Matrix
+    # B. Enrich with Hardware Data & Build App List
     hardware_data = []
-    app_matrix_rows = [] 
+    app_inventory_rows = [] 
     
     for user_email in master_df.index:
         audit_path = find_audit_file(audit_folder, user_email)
@@ -92,12 +91,13 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
         user_data['User'] = user_email
         hardware_data.append(user_data)
         
-        # --- BUILD APP MATRIX DATA ---
+        # --- BUILD NORMALIZED APP DATA (LONG FORMAT) ---
         apps_str = user_data.get('Installed Apps', '-')
         if apps_str and apps_str != '-':
             app_list = apps_str.split('\n')
             for app in app_list:
-                app_matrix_rows.append({'App Name': app, 'User': user_email})
+                # We use 'Email' and 'Application' as clear headers for Power BI
+                app_inventory_rows.append({'Email': user_email, 'Application': app})
         
     hardware_df = pd.DataFrame(hardware_data).set_index('User')
     full_report = master_df.join(hardware_df, how='left')
@@ -162,29 +162,28 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
             if col_name in ['Printers', 'Peripherals', 'Network Interfaces']:
                 ws_data.set_column(idx, idx, 35, text_wrap)
 
-        # --- SHEET 2: APP MATRIX ---
-        if app_matrix_rows:
-            matrix_raw = pd.DataFrame(app_matrix_rows)
-            # Crosstab: Rows=App Name, Cols=User
-            app_pivot = pd.crosstab(matrix_raw['App Name'], matrix_raw['User'])
-            app_pivot = app_pivot.map(lambda x: '✅' if x > 0 else '')
+        # --- SHEET 2: APP INVENTORY (NORMALIZED) ---
+        if app_inventory_rows:
+            # Create a Long-Format DataFrame (Email, Application)
+            app_df = pd.DataFrame(app_inventory_rows)
             
-            sheet_apps = 'App Matrix'
-            app_pivot.to_excel(writer, sheet_name=sheet_apps, index=True)
+            sheet_apps = 'App Inventory'
+            # We don't need the index for this one, just the raw rows
+            app_df.to_excel(writer, sheet_name=sheet_apps, index=False)
             ws_apps = writer.sheets[sheet_apps]
             
-            (app_rows, app_cols) = app_pivot.shape
-            app_col_settings = [{'header': 'App Name'}] + [{'header': str(col)} for col in app_pivot.columns]
+            (app_rows, app_cols) = app_df.shape
+            app_col_settings = [{'header': str(col)} for col in app_df.columns]
             
-            ws_apps.add_table(0, 0, app_rows, app_cols, {
+            ws_apps.add_table(0, 0, app_rows, app_cols - 1, {
                 'columns': app_col_settings,
                 'style': 'TableStyleLight9',
-                'name': 'AppMatrix'
+                'name': 'AppInventory'
             })
             
-            ws_apps.freeze_panes(1, 1)
-            ws_apps.set_column(0, 0, 40)
-            ws_apps.set_column(1, app_cols, 15, centered)
+            ws_apps.freeze_panes(1, 0)
+            ws_apps.set_column(0, 0, 30) # Email
+            ws_apps.set_column(1, 1, 50) # Application Name
 
     output.seek(0)
     return output
