@@ -25,11 +25,50 @@ from zip_processor import process_incoming_zips
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Migration Mission Control", layout="wide", page_icon="🚀")
 
-# --- UI TWEAK: COMPACT SIDEBAR ---
+# ==============================================================================
+# GLOBAL UI / LAYOUT FIXES
+# - Ensure the main content truly expands when the sidebar is collapsed
+# - Keep a compact sidebar when expanded
+# - Make the collapse/expand control stay in a sensible spot
+# ==============================================================================
 st.markdown(
     """
     <style>
-    [data-testid="stSidebar"] { min-width: 320px; max-width: 320px; }
+      /* Let the main area use the full viewport width */
+      section.main > div.block-container{
+        max-width: 100% !important;
+        padding-left: 2.0rem !important;
+        padding-right: 2.0rem !important;
+      }
+
+      /* Compact sidebar width when expanded */
+      [data-testid="stSidebar"]{
+        min-width: 320px !important;
+        max-width: 320px !important;
+      }
+
+      /* When sidebar is collapsed, do not reserve space */
+      [data-testid="stSidebar"][aria-expanded="false"]{
+        min-width: 0px !important;
+        max-width: 0px !important;
+        width: 0px !important;
+      }
+
+      /* Keep the collapse/expand chevron accessible */
+      [data-testid="collapsedControl"]{
+        position: fixed !important;
+        top: 0.75rem !important;
+        left: 0.75rem !important;
+        z-index: 9999 !important;
+      }
+
+      /* A little more breathing room for wide layouts */
+      @media (min-width: 1400px){
+        section.main > div.block-container{
+          padding-left: 2.5rem !important;
+          padding-right: 2.5rem !important;
+        }
+      }
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,7 +97,7 @@ def load_config():
                 return json.load(f)
         except Exception:
             pass
-    # NEW: remember whether Google is enabled
+    # Remember whether Google is enabled
     return {
         "google_path": os.path.join(os.getcwd(), "google_data"),
         "zips_path": os.path.join(os.getcwd(), "audit_zips"),
@@ -102,7 +141,7 @@ def render_smart_path_input(title, icon, session_key, help_text, enabled: bool =
         st.sidebar.divider()
         return
 
-    # 1) WINDOWS: Browse
+    # WINDOWS: Browse
     if current_os == "Windows":
         col1, col2 = st.sidebar.columns([1, 2])
         with col1:
@@ -123,7 +162,7 @@ def render_smart_path_input(title, icon, session_key, help_text, enabled: bool =
             else:
                 st.sidebar.caption("Not Set")
 
-    # 2) macOS/Linux: Paste
+    # macOS/Linux: Paste
     else:
         new_val = st.sidebar.text_input(
             "Paste Folder Path",
@@ -159,10 +198,6 @@ def _save_uploaded_file(uploaded_file, dest_dir: str) -> str:
 
 
 def _extract_csvs_from_zip(zip_path: str, dest_dir: str) -> int:
-    """
-    Extract CSV files from zip into dest_dir.
-    Returns count extracted.
-    """
     extracted = 0
     try:
         with zipfile.ZipFile(zip_path, "r") as z:
@@ -182,23 +217,15 @@ def _extract_csvs_from_zip(zip_path: str, dest_dir: str) -> int:
 
 
 def _derive_users_from_audit_folder(audit_folder: str) -> pd.DataFrame:
-    """
-    Creates a minimal 'google_users' style dataframe from whatever audit CSVs exist.
-    This allows the app to run with *audit-only* data (no Google CSV).
-    Index will be 'User' (best-effort email if present in filename; else a normalised name key).
-    """
     if not os.path.isdir(audit_folder):
         return pd.DataFrame()
 
     def extract_key(filename: str) -> str:
         stem = Path(filename).stem
-
-        # Try to find an email in the filename
         m = re.search(r"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})", stem)
         if m:
             return m.group(1).lower()
 
-        # Remove common prefix
         cleaned = re.sub(r"(?i)^audit[_\-\s]*report[_\-\s]*", "", stem)
         cleaned = re.sub(r"[_\-]+", " ", cleaned)
         cleaned = re.sub(r"\s+", " ", cleaned).strip().lower()
@@ -209,24 +236,16 @@ def _derive_users_from_audit_folder(audit_folder: str) -> pd.DataFrame:
         if not f.lower().endswith(".csv"):
             continue
         key = extract_key(f)
-        # Friendly name
-        if "@" in key:
-            friendly = key.split("@")[0].replace(".", " ").title()
-        else:
-            friendly = key.replace(".", " ").title()
+        friendly = key.split("@")[0].replace(".", " ").title() if "@" in key else key.replace(".", " ").title()
         rows.append({"User": key, "Admin-defined name": friendly})
 
     if not rows:
         return pd.DataFrame()
 
-    df = pd.DataFrame(rows).drop_duplicates(subset=["User"]).set_index("User")
-    return df
+    return pd.DataFrame(rows).drop_duplicates(subset=["User"]).set_index("User")
 
 
 def _merge_google_users_with_audit_users(google_users: pd.DataFrame, audit_users: pd.DataFrame) -> pd.DataFrame:
-    """
-    Ensures all audit-derived users exist in the dataframe index, even if Google CSV missing.
-    """
     if google_users is None or google_users.empty:
         return audit_users
 
@@ -234,8 +253,7 @@ def _merge_google_users_with_audit_users(google_users: pd.DataFrame, audit_users
     for user_key in audit_users.index:
         if user_key not in combined.index:
             combined.loc[user_key, "Admin-defined name"] = audit_users.loc[user_key].get("Admin-defined name", "")
-    combined = combined.sort_index()
-    return combined
+    return combined.sort_index()
 
 
 # ==============================================================================
@@ -250,7 +268,6 @@ if "config_loaded" not in st.session_state:
     st.session_state["use_google"] = bool(saved_config.get("use_google", False))
     st.session_state["config_loaded"] = True
 
-# NEW: Google enable toggle (and hard-disable if loader missing)
 google_loader_available = load_google_data is not None
 if not google_loader_available:
     st.session_state["use_google"] = False
@@ -271,7 +288,6 @@ if use_google != st.session_state.get("use_google"):
 if st.session_state["use_google"]:
     render_smart_path_input("Google CSVs", "📊", "google_path", "Folder with UserStats.csv (optional)")
 else:
-    # keep UI compact but visible
     render_smart_path_input("Google CSVs", "📊", "google_path", "Optional", enabled=False)
 
 render_smart_path_input("Audit Zips", "📦", "zips_path", "OneDrive folder with Zip files (optional)")
@@ -296,7 +312,6 @@ if st.session_state["use_google"]:
 
 st.sidebar.divider()
 
-# --- MAIN APP ORCHESTRATOR ---
 google_folder = st.session_state["google_path"]
 zips_folder = st.session_state["zips_path"]
 
@@ -305,7 +320,6 @@ zips_folder = st.session_state["zips_path"]
 # ==============================================================================
 audit_data_available = False
 
-# 1) Process uploaded audit files (preferred if provided)
 if uploaded_audit_files:
     with st.spinner("Processing uploaded audit files..."):
         extracted_count = 0
@@ -320,14 +334,12 @@ if uploaded_audit_files:
         if extracted_count > 0:
             st.toast(f"📦 Added {extracted_count} audit report(s) from upload.", icon="✅")
 
-# 2) Process incoming zips from folder path (existing behaviour)
 if os.path.isdir(zips_folder):
     with st.spinner("Processing Incoming Zips..."):
         new_count = process_incoming_zips(zips_folder, INTERNAL_CSV_STORE)
         if new_count > 0:
             st.toast(f"📦 Extracted {new_count} new audit reports!", icon="✅")
 
-# Confirm audit availability
 if os.path.isdir(INTERNAL_CSV_STORE):
     audit_csvs = [f for f in os.listdir(INTERNAL_CSV_STORE) if f.lower().endswith(".csv")]
     audit_data_available = len(audit_csvs) > 0
@@ -339,7 +351,6 @@ google_users = pd.DataFrame()
 google_loaded = False
 
 if st.session_state["use_google"]:
-    # A) Uploaded Google CSV (takes priority)
     if uploaded_google_csv is not None:
         try:
             google_users = pd.read_csv(uploaded_google_csv)
@@ -354,7 +365,6 @@ if st.session_state["use_google"]:
             st.warning("⚠️ Unable to read uploaded Google CSV. It will be ignored.")
             google_users = pd.DataFrame()
 
-    # B) Folder-based Google load (only if folder valid and no upload used)
     if google_users.empty and os.path.isdir(google_folder) and load_google_data is not None:
         with st.spinner("Loading Google data (folder)..."):
             try:
@@ -365,14 +375,11 @@ if st.session_state["use_google"]:
                 google_users = pd.DataFrame()
                 google_loaded = False
 
-# Status tracker always loads
 status_df = load_status()
 
-# Audit-only user list (always allowed)
 audit_users_df = _derive_users_from_audit_folder(INTERNAL_CSV_STORE) if audit_data_available else pd.DataFrame()
 google_users = _merge_google_users_with_audit_users(google_users, audit_users_df)
 
-# Final validation
 if not audit_data_available and google_users.empty:
     st.warning("Waiting for data... Upload audit files or point to folders in the sidebar.")
     st.stop()
@@ -382,7 +389,6 @@ if not audit_data_available and google_users.empty:
 # ==============================================================================
 st.sidebar.markdown("### 📥 Reports")
 
-# Full export: always allowed (works with audit-only too)
 if st.sidebar.button("Prepare Asset Register", help="Generates Excel for Power BI"):
     with st.spinner("Generating..."):
         excel_full = generate_excel_report(google_users, status_df, INTERNAL_CSV_STORE)
@@ -394,20 +400,19 @@ if "full_excel" in st.session_state:
         data=st.session_state["full_excel"],
         file_name="Migration_Asset_Register.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        use_container_width=True,
+        width='stretch',
     )
 
 st.sidebar.caption("Tip: You can export only selected users from the main page after filtering.")
 st.sidebar.divider()
 
-if st.sidebar.button("Quit Application", type="primary", use_container_width=True):
+if st.sidebar.button("Quit Application", type="primary", width='stretch'):
     st.sidebar.warning("Shutting down...")
     os._exit(0)
 
 # ==============================================================================
 # MAIN DASHBOARD RENDER
 # ==============================================================================
-
 selected = render_header(google_users, status_df)
 
 if selected is None:
@@ -437,7 +442,7 @@ if selected_users:
                 data=excel_filtered,
                 file_name="Migration_Selected_Users.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=False,
+                width='content',
             )
         except Exception as e:
             st.error(f"❌ Export failed: {e}")
@@ -457,12 +462,21 @@ if selected_users:
 
             title = f"👤 {display_name} — {user_key}" if display_name else f"👤 {user_key}"
             with st.expander(title, expanded=False):
-                render_main_section(user_key, google_users, status_df)
-                render_data_section(INTERNAL_CSV_STORE, user_key, google_users)
+                render_main_section(user_key, google_users, status_df, audit_folder=INTERNAL_CSV_STORE)
+                render_data_section(
+                    INTERNAL_CSV_STORE,
+                    user_key,
+                    google_users,
+                    google_enabled=bool(st.session_state.get("use_google", False) and google_loaded),
+                )
     else:
-        # SINGLE USER
         user_key = selected_users[0]
-        render_main_section(user_key, google_users, status_df)
-        render_data_section(INTERNAL_CSV_STORE, user_key, google_users)
+        render_main_section(user_key, google_users, status_df, audit_folder=INTERNAL_CSV_STORE)
+        render_data_section(
+            INTERNAL_CSV_STORE,
+            user_key,
+            google_users,
+            google_enabled=bool(st.session_state.get("use_google", False) and google_loaded),
+        )
 else:
     st.info("👋 Welcome to Mission Control! Please search for a user above to begin.")

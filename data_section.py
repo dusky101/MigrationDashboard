@@ -48,7 +48,12 @@ def _bytes_to_gb(val: str) -> str:
         return str(val)
 
 
-def render_data_section(audit_folder: str, selected_user: str, google_users: pd.DataFrame) -> None:
+def render_data_section(
+    audit_folder: str,
+    selected_user: str,
+    google_users: pd.DataFrame,
+    google_enabled: bool = True,
+) -> None:
     """
     Local Audit Report + Google Data Explorer (optional).
 
@@ -61,18 +66,23 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
       - Music Library
       - Photos Library
       - Fonts
-    - Keeps existing tabs (Specs, Apps, Network, Printers, Devices)
+    - Keeps existing sections (Specs, Apps, Network, Printers, Devices)
     - Uses per-user widget keys to avoid clashes in multi-user expanders
+    - Hides Google tab entirely when google_enabled is False or google_users is empty
     """
 
     key_prefix = f"ds::{selected_user}::"
 
-    try:
-        user_data = google_users.loc[selected_user]
-    except Exception:
-        user_data = pd.Series(dtype="object")
+    # Decide if Google explorer should be shown (tab is hidden otherwise)
+    has_google_df = google_users is not None and not google_users.empty
+    show_google = bool(google_enabled and has_google_df)
 
-    tab_audit, tab_explore = st.tabs(["💻 Local Audit Report", "📊 Google Data Explorer"])
+    # Create tabs only when needed
+    if show_google:
+        tab_audit, tab_explore = st.tabs(["💻 Local Audit Report", "📊 Google Data Explorer"])
+    else:
+        tab_audit = st.container()
+        tab_explore = None
 
     # ==========================================================================
     # TAB 1: LOCAL AUDIT
@@ -112,7 +122,7 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                 "☁️ Cloud",
                 "🖼️ Media",
                 "🔤 Fonts",
-                "☁️ Network",
+                "🌐 Network",
                 "🖨 Printers",
                 "🔌 Devices",
             ]
@@ -179,7 +189,11 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                 else:
                     st.caption(f"{len(main)} item(s)")
                     with st.expander("Show user apps list", expanded=True):
-                        st.dataframe(main[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                        st.dataframe(
+                            main[["NAME", "DETAILS"]],
+                            width='stretch',
+                            hide_index=True,
+                        )
 
             with col_app2:
                 st.markdown("**Installed / Detected Apps**")
@@ -215,9 +229,17 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                             for d in current_devs:
                                 subset = df_show[df_show["DEVELOPER"].astype(str).fillna("Unknown") == d]
                                 with st.expander(f"{d} ({len(subset)})", expanded=False):
-                                    st.dataframe(subset[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                                    st.dataframe(
+                                        subset[["NAME", "DETAILS"]],
+                                        width='stretch',
+                                        hide_index=True,
+                                    )
                         else:
-                            st.dataframe(df_show[["DEVELOPER", "NAME", "DETAILS"]], width='stretch', hide_index=True)
+                            st.dataframe(
+                                df_show[["DEVELOPER", "NAME", "DETAILS"]],
+                                width='stretch',
+                                hide_index=True,
+                            )
 
         # ------------------------
         # 3) HOMEBREW PACKAGES
@@ -229,21 +251,30 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             if brew.empty:
                 st.info("No Homebrew packages detected (or Homebrew not installed).")
             else:
-                # Search/filter
-                q = st.text_input("Search packages", value="", key=f"{key_prefix}brew_search", placeholder="e.g. git, python, node")
+                q = st.text_input(
+                    "Search packages",
+                    value="",
+                    key=f"{key_prefix}brew_search",
+                    placeholder="e.g. git, python, node",
+                )
+
                 show = brew
                 if q.strip():
                     qq = q.strip().lower()
                     show = show[
-                        brew["NAME"].astype(str).str.lower().str.contains(qq, na=False)
-                        | brew["DETAILS"].astype(str).str.lower().str.contains(qq, na=False)
+                        show["NAME"].astype(str).str.lower().str.contains(qq, na=False)
+                        | show["DETAILS"].astype(str).str.lower().str.contains(qq, na=False)
                     ]
 
                 c1, c2 = st.columns([1, 3])
                 c1.metric("Packages", len(brew))
                 c2.caption("Tip: use search to find a package quickly.")
 
-                st.dataframe(show[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                st.dataframe(
+                    show[["NAME", "DETAILS"]],
+                    width='stretch',
+                    hide_index=True,
+                )
 
         # ------------------------
         # 4) WEB BROWSERS
@@ -255,18 +286,20 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             if browsers.empty:
                 st.info("No browser artefacts detected.")
             else:
-                # Group by browser name (NAME column) for a nicer presentation
                 for browser_name in sorted(browsers["NAME"].astype(str).fillna("Unknown").unique()):
                     subset = browsers[browsers["NAME"].astype(str).fillna("Unknown") == browser_name]
                     vendor = subset["DEVELOPER"].astype(str).fillna("Unknown").iloc[0] if not subset.empty else "Unknown"
                     with st.expander(f"{browser_name} ({vendor})", expanded=True):
-                        # Show key messages as bullets
                         details = subset["DETAILS"].astype(str).fillna("").tolist()
                         for d in details:
                             if d.strip():
                                 st.write(f"• {d}")
-                        # And a structured table for completeness
-                        st.dataframe(subset[["DEVELOPER", "NAME", "DETAILS"]], width='stretch', hide_index=True)
+
+                        st.dataframe(
+                            subset[["DEVELOPER", "NAME", "DETAILS"]],
+                            width='stretch',
+                            hide_index=True,
+                        )
 
         # ------------------------
         # 5) EMAIL ACCOUNTS
@@ -278,7 +311,6 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             if email.empty:
                 st.info("No email account artefacts detected.")
             else:
-                # Group by app/profile name
                 names = sorted(email["NAME"].astype(str).fillna("Unknown").unique())
                 for n in names:
                     subset = email[email["NAME"].astype(str).fillna("Unknown") == n]
@@ -288,7 +320,12 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                         for d in details:
                             if d.strip():
                                 st.write(f"• {d}")
-                        st.dataframe(subset[["DEVELOPER", "NAME", "DETAILS"]], width='stretch', hide_index=True)
+
+                        st.dataframe(
+                            subset[["DEVELOPER", "NAME", "DETAILS"]],
+                            width='stretch',
+                            hide_index=True,
+                        )
 
         # ------------------------
         # 6) CLOUD STORAGE
@@ -300,13 +337,20 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             if cloud.empty:
                 st.info("No cloud storage signals detected.")
             else:
-                # Often a single line: "No Cloud Storage"
-                # Show a clear status first
                 if len(cloud) == 1:
                     row = cloud.iloc[0]
-                    st.info(f"**{row.get('NAME', 'Cloud Storage')}** — {row.get('DETAILS', '')}")
+                    name = str(row.get("NAME", "Cloud Storage"))
+                    details = str(row.get("DETAILS", ""))
+                    if "no cloud" in f"{name} {details}".lower():
+                        st.info(f"**{name}** — {details}")
+                    else:
+                        st.success(f"**{name}** — {details}")
                 else:
-                    st.dataframe(cloud[["DEVELOPER", "NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        cloud[["DEVELOPER", "NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
         # ------------------------
         # 7) MEDIA (MUSIC + PHOTOS)
@@ -324,10 +368,12 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                 if music.empty:
                     st.info("No music library detected.")
                 else:
-                    # Metric: total size (best effort)
-                    sizes = [_bytes_to_gb(x) for x in music["DETAILS"].astype(str).tolist()]
                     st.caption(f"{len(music)} item(s)")
-                    st.dataframe(music[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        music[["NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
             with m2:
                 st.subheader("🖼 Photos Library")
@@ -335,13 +381,16 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                     st.info("No photos library detected.")
                 else:
                     st.caption(f"{len(photos)} item(s)")
-                    # Show biggest library as metric if possible
                     try:
                         first = photos.iloc[0]
                         st.metric("Largest Library (reported)", _bytes_to_gb(first.get("DETAILS", "")))
                     except Exception:
                         pass
-                    st.dataframe(photos[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        photos[["NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
         # ------------------------
         # 8) FONTS
@@ -359,6 +408,7 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                     key=f"{key_prefix}fonts_search",
                     placeholder="e.g. Helvetica, Calibri, Gotham",
                 )
+
                 show = fonts
                 if q.strip():
                     qq = q.strip().lower()
@@ -368,10 +418,14 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
                 c1.metric("Fonts", len(fonts))
                 c2.caption("Results update instantly as you type.")
 
-                st.dataframe(show[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                st.dataframe(
+                    show[["NAME", "DETAILS"]],
+                    width='stretch',
+                    hide_index=True,
+                )
 
         # ------------------------
-        # 9) NETWORK (legacy / if present)
+        # 9) NETWORK
         # ------------------------
         with t_net:
             net = audit_df[audit_df["TYPE"] == "Network & Storage"].copy()
@@ -380,7 +434,11 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             else:
                 st.caption(f"{len(net)} item(s)")
                 with st.expander("Show network & storage details", expanded=True):
-                    st.dataframe(net[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        net[["NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
         # ------------------------
         # 10) PRINTERS
@@ -392,103 +450,113 @@ def render_data_section(audit_folder: str, selected_user: str, google_users: pd.
             else:
                 st.caption(f"{len(printr)} printer(s)")
                 with st.expander("Show printers", expanded=True):
-                    st.dataframe(printr[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        printr[["NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
         # ------------------------
-        # 11) DEVICES / PERIPHERALS (legacy / if present)
+        # 11) DEVICES / PERIPHERALS
         # ------------------------
         with t_dev:
-            dev = audit_df[audit_df["TYPE"].isin(["External Peripherals", "DEVICE", "Built-in / System"])].copy()
+            dev = audit_df[audit_df["TYPE"].isin(["External Peripherals", "DEVICE", "Built-in / System", "USB"])].copy()
             if dev.empty:
                 st.info("None")
             else:
                 st.caption(f"{len(dev)} device/peripheral item(s)")
                 with st.expander("Show devices & peripherals", expanded=True):
-                    st.dataframe(dev[["NAME", "DETAILS"]], width='stretch', hide_index=True)
+                    st.dataframe(
+                        dev[["NAME", "DETAILS"]],
+                        width='stretch',
+                        hide_index=True,
+                    )
 
     # ==========================================================================
     # TAB 2: GOOGLE DATA EXPLORER (OPTIONAL)
     # ==========================================================================
-    with tab_explore:
-        st.markdown("### 🔍 Migration Record")
-        st.caption("Optional enrichment from Google Workspace logs (if provided).")
+    if tab_explore is not None:
+        with tab_explore:
+            st.markdown("### 🔍 Migration Record")
+            st.caption("Optional enrichment from Google Workspace logs (if provided).")
 
-        if google_users is None or google_users.empty:
-            st.info("No Google data loaded. This is fine — the audit report is the primary source.")
-            return
+            if google_users is None or google_users.empty:
+                st.info("No Google data loaded. This is fine — the audit report is the primary source.")
+                return
 
-        if selected_user in google_users.index:
-            df_for_display = google_users.loc[[selected_user]].reset_index()
-        else:
-            st.info("This user/device is not present in the uploaded Google dataset.")
-            return
+            if selected_user in google_users.index:
+                df_for_display = google_users.loc[[selected_user]].reset_index()
+            else:
+                st.info("This user/device is not present in the uploaded Google dataset.")
+                return
 
-        all_cols = df_for_display.columns.tolist()
+            all_cols = df_for_display.columns.tolist()
 
-        preferred_cols = [
-            "User",
-            "Admin-defined name",
-            "Role",
-            "User account status",
-            "Total storage used (MB)",
-            "Gmail (Web) - last used time",
-            "Org Unit Path",
-            "Groups",
-            "External apps",
-        ]
-        default_cols = [c for c in preferred_cols if c in all_cols]
+            preferred_cols = [
+                "User",
+                "Admin-defined name",
+                "Role",
+                "User account status",
+                "Total storage used (MB)",
+                "Gmail (Web) - last used time",
+                "Org Unit Path",
+                "Groups",
+                "External apps",
+            ]
+            default_cols = [c for c in preferred_cols if c in all_cols]
 
-        selected_cols = st.multiselect(
-            "Select Data Points:",
-            all_cols,
-            default=default_cols,
-            key=f"{key_prefix}g_explorer_cols",
-        )
-
-        if not selected_cols:
-            st.info("Select columns above to view data.")
-            return
-
-        storage_cols_found = [
-            c for c in selected_cols
-            if ("storage used" in c.lower())
-            or ("quota" in c.lower())
-            or ("(mb)" in c.lower() and "storage" in c.lower())
-        ]
-
-        use_gb = False
-        if storage_cols_found:
-            smart_default = False
-            for c in storage_cols_found:
-                try:
-                    val = df_for_display.iloc[0].get(c, 0)
-                    if pd.notna(val) and float(val) > 1024:
-                        smart_default = True
-                        break
-                except Exception:
-                    pass
-
-            use_gb = st.toggle(
-                "Show Storage in GB",
-                value=smart_default,
-                key=f"{key_prefix}g_explorer_gb",
+            selected_cols = st.multiselect(
+                "Select Data Points:",
+                all_cols,
+                default=default_cols,
+                key=f"{key_prefix}g_explorer_cols",
             )
 
-        data_to_show = df_for_display[selected_cols].copy()
+            if not selected_cols:
+                st.info("Select columns above to view data.")
+                return
 
-        if use_gb and storage_cols_found:
-            for col in storage_cols_found:
-                try:
-                    val_mb = pd.to_numeric(data_to_show[col], errors="coerce")
-                    val_gb = val_mb / 1024
-                    data_to_show[col] = val_gb.map(lambda x: "" if pd.isna(x) else f"{x:.2f}")
-                    new_header = col.replace("(MB)", "(GB)").replace("(mb)", "(GB)").replace("_in_mb", "_in_gb")
-                    data_to_show = data_to_show.rename(columns={col: new_header})
-                except Exception:
-                    continue
+            storage_cols_found = [
+                c
+                for c in selected_cols
+                if ("storage used" in c.lower())
+                or ("quota" in c.lower())
+                or ("(mb)" in c.lower() and "storage" in c.lower())
+            ]
 
-        st.dataframe(
-            data_to_show.astype(str),
-            width='stretch',
-            hide_index=True,
-        )
+            use_gb = False
+            if storage_cols_found:
+                smart_default = False
+                for c in storage_cols_found:
+                    try:
+                        val = df_for_display.iloc[0].get(c, 0)
+                        if pd.notna(val) and float(val) > 1024:
+                            smart_default = True
+                            break
+                    except Exception:
+                        pass
+
+                use_gb = st.toggle(
+                    "Show Storage in GB",
+                    value=smart_default,
+                    key=f"{key_prefix}g_explorer_gb",
+                )
+
+            data_to_show = df_for_display[selected_cols].copy()
+
+            if use_gb and storage_cols_found:
+                for col in storage_cols_found:
+                    try:
+                        val_mb = pd.to_numeric(data_to_show[col], errors="coerce")
+                        val_gb = val_mb / 1024
+                        data_to_show[col] = val_gb.map(lambda x: "" if pd.isna(x) else f"{x:.2f}")
+                        new_header = col.replace("(MB)", "(GB)").replace("(mb)", "(GB)").replace("_in_mb", "_in_gb")
+                        data_to_show = data_to_show.rename(columns={col: new_header})
+                    except Exception:
+                        continue
+
+            st.dataframe(
+                data_to_show.astype(str),
+                width='stretch',
+                hide_index=True,
+            )

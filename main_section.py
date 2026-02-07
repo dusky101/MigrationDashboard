@@ -2,6 +2,8 @@ import os
 import streamlit as st
 import pandas as pd
 
+from migrationaud import find_audit_file, parse_audit_csv
+
 # --- CONSTANTS ---
 STATUS_FILE = "status_tracker.csv"
 STATUS_OPTIONS = [
@@ -12,7 +14,10 @@ STATUS_OPTIONS = [
     "Complete",
 ]
 
-# --- STATUS FUNCTIONS ---
+
+# -----------------------------------------------------------------------------
+# STATUS FUNCTIONS
+# -----------------------------------------------------------------------------
 def load_status() -> pd.DataFrame:
     """
     Loads the status tracker CSV.
@@ -25,7 +30,6 @@ def load_status() -> pd.DataFrame:
     if os.path.exists(STATUS_FILE):
         df = pd.read_csv(STATUS_FILE)
 
-        # Backward compatibility: if file existed without 'User' header
         if "User" not in df.columns and len(df.columns) > 0:
             df = df.rename(columns={df.columns[0]: "User"})
 
@@ -69,10 +73,13 @@ def save_status(user_key: str, status: str, notes: str, entra_created: bool) -> 
     df.to_csv(STATUS_FILE, index_label="User")
 
 
+# -----------------------------------------------------------------------------
+# HELPERS
+# -----------------------------------------------------------------------------
 def _google_data_available(google_users: pd.DataFrame) -> bool:
     """
     Determines whether we should show Google-dependent UI.
-    We treat Google as 'available' only if:
+    Treat Google as 'available' only if:
       - dataframe is non-empty, AND
       - it has at least one of the typical Google columns we rely on.
     """
@@ -93,24 +100,113 @@ def _google_data_available(google_users: pd.DataFrame) -> bool:
     return any(c in google_users.columns for c in google_signal_cols)
 
 
-# --- RENDER FUNCTION ---
-def render_main_section(selected_user: str, google_users: pd.DataFrame, status_df: pd.DataFrame) -> None:
+def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
     """
-    Renders the main dashboard section for a single user.
+    Extracts a concise audit summary (System Specifications + Homebrew presence).
+    Returns dict of display fields.
+    """
+    summary = {
+        "Model Identifier": "—",
+        "Serial Number": "—",
+        "Processor / Chip": "—",
+        "Memory (RAM)": "—",
+        "Hard Drive Capacity": "—",
+        "Available Space": "—",
+        "macOS Version": "—",
+        "Homebrew Installed": "Unknown",
+    }
 
-    Updated:
-    - If Google data is not available, hides the entire Google-only columns (Storage/Groups + Security/Role)
-      and removes the Google-only fields from column 1.
+    if not audit_folder or not os.path.isdir(audit_folder):
+        return summary
+
+    audit_path = find_audit_file(audit_folder, user_key)
+    if not audit_path:
+        return summary
+
+    df = parse_audit_csv(audit_path)
+    if df is None or df.empty:
+        return summary
+
+    specs = df[df["TYPE"].astype(str).str.lower() == "system specifications"].copy()
+
+    def get_spec(name_key: str) -> str:
+        if specs.empty:
+            return "—"
+        row = specs[specs["NAME"].astype(str).str.contains(name_key, case=False, na=False)]
+        if row.empty:
+            return "—"
+        return str(row.iloc[0].get("DETAILS", "—")).strip() or "—"
+
+    # Pull exact items (best-effort)
+    summary["Hard Drive Capacity"] = get_spec("Hard Drive Capacity")
+    summary["Available Space"] = get_spec("Available Space")
+    summary["Memory (RAM)"] = get_spec("Memory")
+    summary["Processor / Chip"] = get_spec("Processor")
+    summary["Serial Number"] = get_spec("Serial Number")
+    summary["Model Identifier"] = get_spec("Model Identifier")
+    summary["macOS Version"] = get_spec("macOS Version")
+
+    # Homebrew detection (robust across versions)
+    type_has_homebrew = df["TYPE"].astype(str).str.contains("homebrew", case=False, na=False).any()
+    name_has_homebrew = df["NAME"].astype(str).str.contains("homebrew|brew", case=False, na=False).any()
+
+    # If you have a dedicated row like "Homebrew Installed, Yes/No", this will catch it too:
+    homebrew_detail_row = df[
+        df["NAME"].astype(str).str.contains("homebrew", case=False, na=False)
+        | df["DETAILS"].astype(str).str.contains("homebrew", case=False, na=False)
+    ]
+    detail_says_yes = False
+    if not homebrew_detail_row.empty:
+        joined = " ".join(homebrew_detail_row["DETAILS"].astype(str).tolist()).lower()
+        if any(tok in joined for tok in ["installed", "present", "true", "yes", "found"]):
+            detail_says_yes = True
+        if any(tok in joined for tok in ["not installed", "absent", "false", "no"]):
+            detail_says_yes = False
+
+    if type_has_homebrew or name_has_homebrew:
+        summary["Homebrew Installed"] = "Yes" if detail_says_yes or type_has_homebrew else "Yes"
+    else:
+        summary["Homebrew Installed"] = "No"
+
+    return summary
+
+
+def _status_badge(curr_status: str) -> None:
+    if curr_status == "Complete":
+        st.success(f"✅ {curr_status}")
+    elif curr_status in ["Migration Run", "Migration setup completed"]:
+        st.warning(f"🚀 {curr_status}")
+    elif curr_status == "Machine Audit Run":
+        st.info(f"💻 {curr_status}")
+    else:
+        st.write(f"⚪ {curr_status}")
+
+
+# -----------------------------------------------------------------------------
+# RENDER FUNCTION
+# -----------------------------------------------------------------------------
+def render_main_section(
+    selected_user: str,
+    google_users: pd.DataFrame,
+    status_df: pd.DataFrame,
+    audit_folder: str | None = None,
+) -> None:
     """
+    Main user dashboard.
+
+    Update:
+    - Workflow is narrower.
+    - Adds an Audit Summary column (key machine details + Homebrew installed).
+    - Google enrichment is shown below and only if Google data is actually available.
+    """
+
     key_prefix = f"ms::{selected_user}::"
-
     google_enabled = _google_data_available(google_users)
 
-    # Pull row (audit-only users may not be in google_users; use empty Series)
+    # Pull google row only if it exists
+    user_data = pd.Series(dtype="object")
     if google_enabled and selected_user in google_users.index:
         user_data = google_users.loc[selected_user]
-    else:
-        user_data = pd.Series(dtype="object")
 
     # Friendly name
     full_name = ""
@@ -125,7 +221,15 @@ def render_main_section(selected_user: str, google_users: pd.DataFrame, status_d
         else:
             full_name = selected_user.replace(".", " ").title()
 
-    # --- HEADER: Name & Clickable Email (only if it looks like an email) ---
+    # Status (from tracker)
+    curr_status = "Not Started"
+    if status_df is not None and not status_df.empty and selected_user in status_df.index:
+        try:
+            curr_status = str(status_df.loc[selected_user, "Status"])
+        except Exception:
+            curr_status = "Not Started"
+
+    # --- HEADER ROW ---
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
         st.markdown(f"# 👤 {full_name}")
@@ -134,38 +238,18 @@ def render_main_section(selected_user: str, google_users: pd.DataFrame, status_d
         else:
             st.markdown(f"**User Key:** `{selected_user}`")
 
-    # --- TOP RIGHT: Status Badge ---
-    curr_status = "Not Started"
-    if status_df is not None and not status_df.empty and selected_user in status_df.index:
-        try:
-            curr_status = str(status_df.loc[selected_user, "Status"])
-        except Exception:
-            curr_status = "Not Started"
-
     with col_h2:
-        if curr_status == "Complete":
-            st.success(f"✅ {curr_status}")
-        elif curr_status in ["Migration Run", "Migration setup completed"]:
-            st.warning(f"🚀 {curr_status}")
-        elif curr_status == "Machine Audit Run":
-            st.info(f"💻 {curr_status}")
-        else:
-            st.write(f"⚪ {curr_status}")
+        _status_badge(curr_status)
 
     st.divider()
 
-    # Layout: if Google is enabled, keep 3 columns. If not, show only Workflow column full width.
-    if google_enabled:
-        c1, c2, c3 = st.columns([1.4, 1, 1])
-    else:
-        c1 = st.container()
-        c2 = None
-        c3 = None
+    # --- TWO-COLUMN ROW: Workflow (narrow) + Audit Summary (wide) ---
+    col_workflow, col_audit = st.columns([1.1, 1.6])
 
     # ==========================================================================
-    # COLUMN 1: Workflow & Details (always shown)
+    # WORKFLOW (NARROW)
     # ==========================================================================
-    with c1:
+    with col_workflow:
         st.subheader("📋 Workflow")
 
         current_notes = ""
@@ -194,51 +278,72 @@ def render_main_section(selected_user: str, google_users: pd.DataFrame, status_d
                 index=status_index,
                 key=f"{key_prefix}status_select",
             )
-
             new_entra = st.checkbox(
                 "User created in MS Entra",
                 value=current_entra,
                 key=f"{key_prefix}entra_checkbox",
             )
-
             new_notes = st.text_area(
                 "Engineer Notes",
                 value=str(current_notes) if pd.notna(current_notes) else "",
-                height=100,
+                height=120,
                 key=f"{key_prefix}notes_text",
             )
 
-            if st.form_submit_button("💾 Save", use_container_width=True):
+            if st.form_submit_button("💾 Save", width='stretch'):
                 save_status(selected_user, new_status, new_notes, new_entra)
                 st.toast("Saved", icon="✅")
                 st.rerun()
 
-        st.divider()
+    # ==========================================================================
+    # AUDIT SUMMARY (WIDE)
+    # ==========================================================================
+    with col_audit:
+        st.subheader("🖥 Audit Summary")
 
-        # Google-only extras shown only if Google is available
-        if google_enabled:
-            st.markdown("**🏢 Organisational Unit**")
-            ou_path = user_data.get("Org Unit Path", None)
-            if ou_path is None or (isinstance(ou_path, float) and pd.isna(ou_path)) or str(ou_path).strip() == "":
-                st.code("/", language="text")
-            else:
-                st.code(str(ou_path), language="text")
+        audit_summary = _audit_summary_for_user(audit_folder, selected_user)
 
-            st.write("")
-            activity = user_data.get("Recent Email Activity (30d)", None)
-            if activity is None or (isinstance(activity, float) and pd.isna(activity)):
-                st.metric("📨 Recent Email Activity (30d)", "N/A")
-            else:
-                st.metric("📨 Recent Email Activity (30d)", activity)
+        # Top line: key identity metrics
+        m1, m2, m3 = st.columns(3)
+        m1.metric("Model Identifier", audit_summary.get("Model Identifier", "—"))
+        m2.metric("Memory (RAM)", audit_summary.get("Memory (RAM)", "—"))
+        m3.metric("Serial Number", audit_summary.get("Serial Number", "—"))
 
+        st.write("")
+
+        # Secondary: storage + OS + processor + Homebrew badge
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("Disk Capacity", audit_summary.get("Hard Drive Capacity", "—"))
+        c2.metric("Available Space", audit_summary.get("Available Space", "—"))
+        c3.metric("macOS Version", audit_summary.get("macOS Version", "—"))
+
+        hb = str(audit_summary.get("Homebrew Installed", "Unknown"))
+        if hb.lower() == "yes":
+            c4.success("🍺 Homebrew: Installed")
+        elif hb.lower() == "no":
+            c4.info("🍺 Homebrew: Not detected")
         else:
-            st.caption("Google enrichment is disabled or not loaded. Only workflow/status is shown here.")
+            c4.warning("🍺 Homebrew: Unknown")
+
+        # Processor can be long; show as a neat line
+        proc = audit_summary.get("Processor / Chip", "—")
+        if proc and proc != "—":
+            st.caption(f"**Processor / Chip:** {proc}")
+
+    st.divider()
 
     # ==========================================================================
-    # COLUMN 2: Storage & Groups (Google-only)
+    # GOOGLE ENRICHMENT (HIDDEN WHEN NOT AVAILABLE)
     # ==========================================================================
-    if google_enabled and c2 is not None:
-        with c2:
+    if not google_enabled:
+        # Nothing Google-related should appear
+        return
+
+    with st.expander("📊 Google enrichment", expanded=False):
+        g1, g2 = st.columns([1.1, 1.1])
+
+        # --- Storage & Groups ---
+        with g1:
             st.subheader("☁️ Storage")
 
             def _get_mb(col_name: str) -> float:
@@ -282,50 +387,33 @@ def render_main_section(selected_user: str, google_users: pd.DataFrame, status_d
             if not groups_col_exists:
                 st.info("Group membership not available.")
             elif groups:
-                st.caption("Click a group to view its members.")
                 cols = st.columns(2)
-
                 for i, group_name in enumerate(groups):
                     with cols[i % 2]:
-                        with st.popover(group_name, use_container_width=True):
+                        with st.popover(group_name, width='stretch'):
                             st.markdown(f"**Members of `{group_name}`**")
 
-                            try:
-                                def is_in_group(user_groups_str):
-                                    if not isinstance(user_groups_str, str):
-                                        return False
-                                    current_user_list = [g.strip() for g in user_groups_str.split(",")]
-                                    return group_name in current_user_list
+                            def is_in_group(user_groups_str):
+                                if not isinstance(user_groups_str, str):
+                                    return False
+                                current_user_list = [g.strip() for g in user_groups_str.split(",")]
+                                return group_name in current_user_list
 
-                                members_mask = google_users["Groups"].apply(is_in_group)
-                                members = google_users[members_mask].reset_index()
+                            members_mask = google_users["Groups"].apply(is_in_group)
+                            members = google_users[members_mask].reset_index()
 
-                                if not members.empty:
-                                    name_col = "Admin-defined name" if "Admin-defined name" in members.columns else members.columns[0]
-                                    display_df = members[[name_col, "User"]].rename(columns={name_col: "Name", "User": "Email"})
-
-                                    st.dataframe(
-                                        display_df,
-                                        hide_index=True,
-                                        use_container_width=True,
-                                        column_config={
-                                            "Name": st.column_config.TextColumn("Name", width="medium"),
-                                            "Email": st.column_config.TextColumn("Email", width="large"),
-                                        },
-                                    )
-                                    st.caption(f"Total: {len(members)}")
-                                else:
-                                    st.info("No other members found.")
-                            except Exception as e:
-                                st.error(f"Could not load members: {e}")
+                            if not members.empty:
+                                name_col = "Admin-defined name" if "Admin-defined name" in members.columns else members.columns[0]
+                                display_df = members[[name_col, "User"]].rename(columns={name_col: "Name", "User": "Email"})
+                                st.dataframe(display_df, hide_index=True, width='stretch')
+                                st.caption(f"Total: {len(members)}")
+                            else:
+                                st.info("No other members found.")
             else:
                 st.info("No groups found")
 
-    # ==========================================================================
-    # COLUMN 3: Security & Role (Google-only)
-    # ==========================================================================
-    if google_enabled and c3 is not None:
-        with c3:
+        # --- Security & Role ---
+        with g2:
             st.subheader("🛡 Security")
 
             role = user_data.get("Role", None)
@@ -358,5 +446,3 @@ def render_main_section(selected_user: str, google_users: pd.DataFrame, status_d
             else:
                 last_login_str = str(last_login).split("T")[0]
                 st.metric("Last Login", last_login_str)
-
-    st.divider()
