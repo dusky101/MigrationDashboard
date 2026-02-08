@@ -1,8 +1,14 @@
+"""
+Header Component
+
+Renders the top navigation bar with search, metrics, and filters.
+"""
+
 import streamlit as st
 import pandas as pd
 
 
-def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
+def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame) -> list:
     """
     Renders the top navigation bar with Title, Metrics, and User Search.
 
@@ -10,6 +16,13 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
     - Uses a MULTISELECT so you can choose multiple users/devices at once.
     - Returns: List[str] of selected user keys (may be empty list)
       (For backwards compatibility with older callers, empty selection returns [])
+      
+    Args:
+        google_users: DataFrame of users (indexed by email/user key)
+        status_df: DataFrame of migration statuses
+        
+    Returns:
+        List of selected user keys (emails)
     """
 
     # --- TOP ROW: Title & Global Stats ---
@@ -21,13 +34,13 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
     with c2:
         total = len(google_users) if google_users is not None else 0
 
-        # Be defensive: status_df might not be indexed, but in your app it is.
+        # Calculate completion stats
         done = 0
         if status_df is not None and not status_df.empty:
             if "Status" in status_df.columns:
                 done = int((status_df["Status"] == "Complete").sum())
             else:
-                # Legacy fallback if status_df was already filtered or structured differently
+                # Legacy fallback
                 done = len(status_df[status_df == "Complete"])
 
         percent = int((done / total) * 100) if total > 0 else 0
@@ -47,7 +60,7 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
         st.write("")  # Alignment spacer
         show_only_pending = st.checkbox("Hide Completed", value=False)
 
-        # Optional quick actions (safe UX enhancement)
+        # Quick tip
         st.caption("Tip: select multiple users for side-by-side review.")
 
     # --- Prepare list for the multiselect ---
@@ -68,7 +81,6 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
             try:
                 s_text = str(status_df.loc[user_key, "Status"])
             except Exception:
-                # If status_df has a different shape, fall back safely
                 pass
 
         # Filter completed if requested
@@ -84,7 +96,7 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
             else:
                 name = str(user_key).replace(".", " ").title()
 
-        # Status emoji mapping (preserved + extended)
+        # Status emoji mapping
         if s_text == "Complete":
             status_emoji = "✅"
         elif s_text in ["Migration Run", "Migration setup completed"]:
@@ -93,7 +105,7 @@ def render_header(google_users: pd.DataFrame, status_df: pd.DataFrame):
             status_emoji = "💻"
         elif s_text == "Issues":
             status_emoji = "🚩"
-        elif s_text == "In Progress":  # Legacy support
+        elif s_text == "In Progress":
             status_emoji = "🚧"
         else:
             status_emoji = "⚪"

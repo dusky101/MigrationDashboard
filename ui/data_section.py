@@ -1,8 +1,23 @@
+"""
+Data Section Component
+
+Renders detailed audit data explorer with MODEL and macOS VERSION transformations.
+Provides tabs for different audit categories.
+"""
+
 import os
 import streamlit as st
 import pandas as pd
 
-from migrationaud import find_audit_file, parse_audit_csv
+from core.audit_parser import find_audit_file, parse_audit_csv
+from models.mac_models import (
+    get_friendly_model_name, 
+    get_model_chip_variant,
+    get_model_product_name,
+    get_model_screen_size,
+    get_model_year
+)
+from models.macos_versions import get_macos_friendly_name, supports_apple_intelligence
 
 
 @st.cache_data(show_spinner=False)
@@ -56,6 +71,8 @@ def render_data_section(
 ) -> None:
     """
     Local Audit Report + Google Data Explorer (optional).
+    
+    Features MODEL and macOS VERSION transformations in the Specs tab.
 
     Updated:
     - Adds audit sections for:
@@ -69,6 +86,12 @@ def render_data_section(
     - Keeps existing sections (Specs, Apps, Network, Printers, Devices)
     - Uses per-user widget keys to avoid clashes in multi-user expanders
     - Hides Google tab entirely when google_enabled is False or google_users is empty
+    
+    Args:
+        audit_folder: Path to audit CSV folder
+        selected_user: User key (email)
+        google_users: DataFrame of Google user data
+        google_enabled: Whether Google integration is enabled
     """
 
     key_prefix = f"ds::{selected_user}::"
@@ -85,7 +108,7 @@ def render_data_section(
         tab_explore = None
 
     # ==========================================================================
-    # TAB 1: LOCAL AUDIT
+    # TAB 1: LOCAL AUDIT ⭐ WITH MODEL TRANSFORMATIONS
     # ==========================================================================
     with tab_audit:
         if not audit_folder or not os.path.isdir(audit_folder):
@@ -128,9 +151,9 @@ def render_data_section(
             ]
         )
 
-        # ------------------------
-        # 1) SYSTEM SPECS
-        # ------------------------
+        # ========================================================================
+        # 1) SYSTEM SPECS ⭐ WITH MODEL & macOS TRANSFORMATIONS
+        # ========================================================================
         with t_specs:
             st.caption("Hardware & System Details")
             specs = audit_df[audit_df["TYPE"] == "System Specifications"].copy()
@@ -144,25 +167,101 @@ def render_data_section(
                         return "N/A"
                     return str(row.iloc[0].get("DETAILS", "N/A"))
 
-                model = get_spec("Model Identifier")
+                # Get raw values
+                raw_model = get_spec("Model Identifier")
+                raw_version = get_spec("macOS Version")
                 ram = get_spec("Memory")
                 serial = get_spec("Serial Number")
-                tahoe = get_spec("Tahoe Support")
+                logged_user = get_spec("Logged-in User")  # ⭐ NEW
+                login_name = get_spec("Login Name")      # ⭐ NEW
 
+                # ============================================================
+                # MODEL TRANSFORMATION ⭐ (CLEAN BREAKDOWN LIKE MAIN SECTION)
+                # ============================================================
+                if raw_model and raw_model != "N/A":
+                    product_name = get_model_product_name(raw_model)
+                    screen_size = get_model_screen_size(raw_model)
+                    model_year = get_model_year(raw_model)
+                    chip_variant = get_model_chip_variant(raw_model)
+                else:
+                    product_name = "N/A"
+                    screen_size = None
+                    model_year = None
+                    chip_variant = "N/A"
+
+                # ============================================================
+                # macOS VERSION TRANSFORMATION ⭐
+                # ============================================================
+                if raw_version and raw_version != "N/A":
+                    friendly_version = get_macos_friendly_name(raw_version)
+                    supports_ai = supports_apple_intelligence(raw_version)
+                else:
+                    friendly_version = "N/A"
+                    supports_ai = False
+
+                # ============================================================
+                # DISPLAY - MODEL (CLEAN BREAKDOWN)
+                # ============================================================
                 c1, c2, c3 = st.columns(3)
-                c1.metric("Machine Model", model)
+                
+                # Model with chip badge
+                if "⚠️" in product_name:
+                    c1.metric("Machine Model", product_name)
+                else:
+                    c1.metric("Machine Model", product_name)
+                    
+                    # Build details line
+                    details = []
+                    if screen_size:
+                        details.append(screen_size)
+                    if chip_variant != "N/A":
+                        details.append(chip_variant)
+                    if model_year:
+                        details.append(str(model_year))
+                    
+                    if details:
+                        c1.caption(" • ".join(details))
+                    c1.caption(f"`{raw_model}`")
+                
                 c2.metric("Memory (RAM)", ram)
                 c3.metric("Serial Number", serial)
 
                 st.divider()
 
+                # ============================================================
+                # LOGGED-IN USER INFO ⭐ NEW
+                # ============================================================
+                if logged_user != "N/A" or login_name != "N/A":
+                    u1, u2 = st.columns(2)
+                    if logged_user != "N/A":
+                        u1.metric("Logged-in User", logged_user)
+                    if login_name != "N/A":
+                        u2.metric("Login Name", f"`{login_name}`")
+                    st.divider()
+
+                # ============================================================
+                # macOS VERSION with AI badge
+                # ============================================================
+                if supports_ai and friendly_version != "N/A":
+                    st.success(f"**macOS Version:** {friendly_version} 🤖")
+                    st.caption(f"✅ Supports Apple Intelligence | `{raw_version}`")
+                elif friendly_version != "N/A":
+                    st.info(f"**macOS Version:** {friendly_version}")
+                    st.caption(f"`{raw_version}`")
+                else:
+                    st.metric("macOS Version", "N/A")
+
+                st.divider()
+
+                # Tahoe Support (legacy field - might still be in older audits)
+                tahoe = get_spec("Tahoe Support")
                 if "Unsupported" in tahoe:
                     st.error(f"**AI Readiness:** {tahoe} (Hardware upgrade required)")
                 elif "OS Only" in tahoe:
                     st.warning(f"**AI Readiness:** {tahoe} (OS Update required for full features)")
                 elif "Supported" in tahoe:
                     st.success(f"**AI Readiness:** {tahoe}")
-                else:
+                elif tahoe != "N/A":
                     st.info(f"**AI Readiness:** {tahoe}")
 
                 st.divider()

@@ -1,3 +1,10 @@
+"""
+ZIP File Processor
+
+Automatically extracts audit CSV files from ZIP archives.
+Handles deduplication and supports various naming conventions.
+"""
+
 import os
 import zipfile
 import shutil
@@ -7,6 +14,7 @@ from pathlib import Path
 
 
 def _sha256_file(path: str, chunk_size: int = 1024 * 1024) -> str:
+    """Calculate SHA256 hash of a file."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         for chunk in iter(lambda: f.read(chunk_size), b""):
@@ -26,6 +34,13 @@ def process_incoming_zips(source_folder: str, destination_folder: str) -> int:
     - If the same filename already exists but the ZIP contains a newer/different file,
       it will save it using a de-duplicated name instead of silently skipping.
     - Ignores directory structure inside the zip (flattens to filename).
+      
+    Args:
+        source_folder: Path to folder containing ZIP files
+        destination_folder: Path to folder where CSVs will be extracted
+        
+    Returns:
+        Number of new files extracted
     """
     if not source_folder or not os.path.exists(source_folder):
         return 0

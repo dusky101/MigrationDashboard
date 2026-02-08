@@ -1,10 +1,17 @@
+"""
+Migration Auditor CSV Parser
+
+Handles parsing of audit report CSV files with resilience for format variations.
+"""
+
 import os
 import re
 import csv
 import pandas as pd
+from typing import Optional
 
 
-def find_audit_file(folder_path: str, user_key: str):
+def find_audit_file(folder_path: str, user_key: str) -> Optional[str]:
     """
     Looks for an audit file matching the user in the specified folder.
 
@@ -15,6 +22,13 @@ def find_audit_file(folder_path: str, user_key: str):
         1) Direct substring match of the full user_key in the filename
         2) Email local-part token match (first/last) if user_key looks like an email
         3) Token match for name-like keys (splitting on spaces/dots/underscores)
+        
+    Args:
+        folder_path: Directory containing audit CSV files
+        user_key: User identifier (email or name-based key)
+        
+    Returns:
+        Full path to matching audit file, or None if not found
     """
     if not folder_path or not os.path.exists(folder_path):
         return None
@@ -75,7 +89,7 @@ def find_audit_file(folder_path: str, user_key: str):
     return None
 
 
-def parse_audit_csv(file_path: str) -> pd.DataFrame | None:
+def parse_audit_csv(file_path: str) -> Optional[pd.DataFrame]:
     """
     Reads the Migration Auditor CSV.
 
@@ -93,6 +107,13 @@ def parse_audit_csv(file_path: str) -> pd.DataFrame | None:
     2) Parse subsequent rows with csv.reader (so quotes are honoured).
     3) If a row has more fields than headers, merge the overflow into the LAST column.
        (This preserves any new extra columns you may add later.)
+       
+    Args:
+        file_path: Path to audit CSV file
+        
+    Returns:
+        DataFrame with columns TYPE, DEVELOPER, NAME, DETAILS (and any extras)
+        None if file cannot be parsed
     """
     if not file_path or not os.path.exists(file_path):
         return None

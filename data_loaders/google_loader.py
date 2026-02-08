@@ -1,10 +1,33 @@
+"""
+Google Workspace Data Loader
+
+Merges multiple Google Workspace CSV exports into a unified dataset.
+Handles user activity logs, storage usage, and group memberships.
+"""
+
 import pandas as pd
 import os
 import glob
 import streamlit as st
+from typing import Optional
 
-def load_google_data(folder_path):
-    """Merges all Google CSVs into one master dataframe based on Email."""
+
+def load_google_data(folder_path: str) -> pd.DataFrame:
+    """
+    Merges all Google CSVs into one master dataframe based on Email.
+    
+    Handles:
+    - User activity logs (one row per user)
+    - Group membership data (multiple groups per user)
+    - Storage usage statistics
+    - Various column naming conventions
+    
+    Args:
+        folder_path: Path to folder containing Google CSV exports
+        
+    Returns:
+        Unified DataFrame indexed by User (email), or empty DataFrame if no data
+    """
     logs_df = pd.DataFrame()
     groups_df = pd.DataFrame()
     
@@ -16,9 +39,7 @@ def load_google_data(folder_path):
         return pd.DataFrame() 
 
     for file in files:
-        # --- NEW SAFETY CHECK ---
-        # If an 'Audit Report' was accidentally saved in the Google Data folder,
-        # skip it immediately so we don't try to read it and crash.
+        # Skip Audit Reports that were accidentally saved in Google Data folder
         filename = os.path.basename(file)
         if filename.startswith("Audit_Report_"):
             continue
@@ -30,7 +51,7 @@ def load_google_data(folder_path):
             # Remove [Date] brackets: "Drive Usage [2025-01-01]" -> "Drive Usage"
             df.columns = [c.split(" [")[0].strip() for c in df.columns]
             
-            # Normalize 'Member Email' to 'User' (found in some Group exports)
+            # Normalise 'Member Email' to 'User' (found in some Group exports)
             if 'Member Email' in df.columns:
                 df = df.rename(columns={'Member Email': 'User'})
             
@@ -42,7 +63,7 @@ def load_google_data(folder_path):
             
             # Case A: Group Data (One user belongs to multiple groups)
             if 'Group Name' in df.columns:
-                # IMPROVEMENT: strips whitespace and handles non-string data safely
+                # Aggregate groups per user with proper handling of non-string data
                 grp_agg = df.groupby('User')['Group Name'].apply(
                     lambda x: ', '.join(sorted(set(str(s).strip() for s in x if pd.notna(s))))
                 ).to_frame(name='Groups')
@@ -64,8 +85,7 @@ def load_google_data(folder_path):
                     logs_df = df.combine_first(logs_df)
 
         except Exception as e:
-            # This is where your error was coming from. 
-            # Now that we skip Audit files above, this shouldn't trigger for them.
+            # Inform about problematic files
             st.sidebar.warning(f"Could not read {os.path.basename(file)}: {e}")
             
     # 3. Final Merge of Logs + Groups

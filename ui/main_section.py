@@ -1,81 +1,26 @@
+"""
+Main Section Component
+
+Renders the primary user dashboard with workflow, audit summary, and Google enrichment.
+Integrates model identifier and macOS version transformations.
+"""
+
 import os
 import streamlit as st
 import pandas as pd
 
-from migrationaud import find_audit_file, parse_audit_csv
-
-# --- CONSTANTS ---
-STATUS_FILE = "status_tracker.csv"
-STATUS_OPTIONS = [
-    "Not Started",
-    "Machine Audit Run",
-    "Migration setup completed",
-    "Migration Run",
-    "Complete",
-]
-
-
-# -----------------------------------------------------------------------------
-# STATUS FUNCTIONS
-# -----------------------------------------------------------------------------
-def load_status() -> pd.DataFrame:
-    """
-    Loads the status tracker CSV.
-
-    Enhancements:
-    - Normalises index values (lowercase + strip) to reduce mismatch issues.
-    - Handles backward compatibility if columns are missing.
-    - Always returns a DF indexed by "User".
-    """
-    if os.path.exists(STATUS_FILE):
-        df = pd.read_csv(STATUS_FILE)
-
-        if "User" not in df.columns and len(df.columns) > 0:
-            df = df.rename(columns={df.columns[0]: "User"})
-
-        if "User" in df.columns:
-            df["User"] = df["User"].astype(str).str.strip().str.lower()
-            df = df.set_index("User")
-        else:
-            return pd.DataFrame(columns=["Status", "Notes", "EntraCreated"]).set_index(
-                pd.Index([], name="User")
-            )
-
-        if "Status" not in df.columns:
-            df["Status"] = "Not Started"
-        if "Notes" not in df.columns:
-            df["Notes"] = ""
-        if "EntraCreated" not in df.columns:
-            df["EntraCreated"] = False
-
-        df["Status"] = df["Status"].fillna("Not Started").astype(str)
-        df["Notes"] = df["Notes"].fillna("").astype(str)
-        df["EntraCreated"] = df["EntraCreated"].fillna(False).astype(bool)
-
-        return df
-
-    return pd.DataFrame(columns=["Status", "Notes", "EntraCreated"]).set_index(
-        pd.Index([], name="User")
-    )
+from core.audit_parser import find_audit_file, parse_audit_csv
+from core.status_tracker import save_status, STATUS_OPTIONS
+from models.mac_models import (
+    get_friendly_model_name, 
+    get_model_chip_variant,
+    get_model_product_name,
+    get_model_screen_size,
+    get_model_year
+)
+from models.macos_versions import get_macos_friendly_name, supports_apple_intelligence
 
 
-def save_status(user_key: str, status: str, notes: str, entra_created: bool) -> None:
-    """
-    Saves Status, Notes, and EntraCreated flag to CSV.
-    """
-    user_key = str(user_key).strip().lower()
-    df = load_status()
-
-    df.loc[user_key, "Status"] = status
-    df.loc[user_key, "Notes"] = notes
-    df.loc[user_key, "EntraCreated"] = bool(entra_created)
-
-    df.to_csv(STATUS_FILE, index_label="User")
-
-
-# -----------------------------------------------------------------------------
-# HELPERS
-# -----------------------------------------------------------------------------
 def _google_data_available(google_users: pd.DataFrame) -> bool:
     """
     Determines whether we should show Google-dependent UI.
@@ -102,18 +47,28 @@ def _google_data_available(google_users: pd.DataFrame) -> bool:
 
 def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
     """
-    Extracts a concise audit summary (System Specifications + Homebrew presence).
-    Returns dict of display fields.
+    Extracts a concise audit summary with MODEL and macOS VERSION TRANSFORMATIONS.
+    
+    Returns dict with both friendly names and original identifiers.
     """
     summary = {
         "Model Identifier": "—",
+        "Model Identifier (Raw)": "—",
+        "Model Product Name": "—",
+        "Model Screen Size": None,
+        "Model Year": None,
+        "Model Chip": "—",
         "Serial Number": "—",
         "Processor / Chip": "—",
         "Memory (RAM)": "—",
         "Hard Drive Capacity": "—",
         "Available Space": "—",
         "macOS Version": "—",
+        "macOS Version (Raw)": "—",
+        "Supports Apple Intelligence": False,
         "Homebrew Installed": "Unknown",
+        "Logged-in User": "—",  # ⭐ NEW
+        "Login Name": "—",      # ⭐ NEW
     }
 
     if not audit_folder or not os.path.isdir(audit_folder):
@@ -137,20 +92,55 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
             return "—"
         return str(row.iloc[0].get("DETAILS", "—")).strip() or "—"
 
-    # Pull exact items (best-effort)
+    # Pull specs
     summary["Hard Drive Capacity"] = get_spec("Hard Drive Capacity")
     summary["Available Space"] = get_spec("Available Space")
     summary["Memory (RAM)"] = get_spec("Memory")
     summary["Processor / Chip"] = get_spec("Processor")
     summary["Serial Number"] = get_spec("Serial Number")
-    summary["Model Identifier"] = get_spec("Model Identifier")
-    summary["macOS Version"] = get_spec("macOS Version")
+    
+    # ⭐ NEW: Logged-in user info
+    summary["Logged-in User"] = get_spec("Logged-in User")
+    summary["Login Name"] = get_spec("Login Name")
+    
+    # ========================================================================
+    # MODEL IDENTIFIER TRANSFORMATION ⭐
+    # ========================================================================
+    raw_model = get_spec("Model Identifier")
+    summary["Model Identifier (Raw)"] = raw_model
+    
+    if raw_model and raw_model != "—":
+        friendly_model = get_friendly_model_name(raw_model)
+        summary["Model Identifier"] = friendly_model
+        
+        # Extract components
+        summary["Model Product Name"] = get_model_product_name(raw_model)
+        summary["Model Screen Size"] = get_model_screen_size(raw_model)
+        summary["Model Year"] = get_model_year(raw_model)
+        summary["Model Chip"] = get_model_chip_variant(raw_model)
+    else:
+        summary["Model Identifier"] = "—"
+        summary["Model Product Name"] = "—"
+        summary["Model Chip"] = "—"
+    
+    # ========================================================================
+    # macOS VERSION TRANSFORMATION ⭐
+    # ========================================================================
+    raw_version = get_spec("macOS Version")
+    summary["macOS Version (Raw)"] = raw_version
+    
+    if raw_version and raw_version != "—":
+        friendly_version = get_macos_friendly_name(raw_version)
+        summary["macOS Version"] = friendly_version
+        summary["Supports Apple Intelligence"] = supports_apple_intelligence(raw_version)
+    else:
+        summary["macOS Version"] = "—"
+        summary["Supports Apple Intelligence"] = False
 
-    # Homebrew detection (robust across versions)
+    # Homebrew detection
     type_has_homebrew = df["TYPE"].astype(str).str.contains("homebrew", case=False, na=False).any()
     name_has_homebrew = df["NAME"].astype(str).str.contains("homebrew|brew", case=False, na=False).any()
 
-    # If you have a dedicated row like "Homebrew Installed, Yes/No", this will catch it too:
     homebrew_detail_row = df[
         df["NAME"].astype(str).str.contains("homebrew", case=False, na=False)
         | df["DETAILS"].astype(str).str.contains("homebrew", case=False, na=False)
@@ -160,8 +150,6 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
         joined = " ".join(homebrew_detail_row["DETAILS"].astype(str).tolist()).lower()
         if any(tok in joined for tok in ["installed", "present", "true", "yes", "found"]):
             detail_says_yes = True
-        if any(tok in joined for tok in ["not installed", "absent", "false", "no"]):
-            detail_says_yes = False
 
     if type_has_homebrew or name_has_homebrew:
         summary["Homebrew Installed"] = "Yes" if detail_says_yes or type_has_homebrew else "Yes"
@@ -172,6 +160,7 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
 
 
 def _status_badge(curr_status: str) -> None:
+    """Display status badge with appropriate styling."""
     if curr_status == "Complete":
         st.success(f"✅ {curr_status}")
     elif curr_status in ["Migration Run", "Migration setup completed"]:
@@ -182,9 +171,6 @@ def _status_badge(curr_status: str) -> None:
         st.write(f"⚪ {curr_status}")
 
 
-# -----------------------------------------------------------------------------
-# RENDER FUNCTION
-# -----------------------------------------------------------------------------
 def render_main_section(
     selected_user: str,
     google_users: pd.DataFrame,
@@ -192,12 +178,19 @@ def render_main_section(
     audit_folder: str | None = None,
 ) -> None:
     """
-    Main user dashboard.
+    Main user dashboard with MODEL and macOS VERSION transformations.
 
-    Update:
-    - Workflow is narrower.
-    - Adds an Audit Summary column (key machine details + Homebrew installed).
-    - Google enrichment is shown below and only if Google data is actually available.
+    Shows:
+    - User header with status
+    - Workflow form (narrow column)
+    - Audit Summary with CLEAN model display (wide column)
+    - Google enrichment (collapsible)
+    
+    Args:
+        selected_user: User key (email)
+        google_users: DataFrame of Google user data
+        status_df: DataFrame of migration statuses
+        audit_folder: Path to audit CSV folder
     """
 
     key_prefix = f"ms::{selected_user}::"
@@ -296,27 +289,91 @@ def render_main_section(
                 st.rerun()
 
     # ==========================================================================
-    # AUDIT SUMMARY (WIDE)
+    # AUDIT SUMMARY (WIDE) ⭐ WITH CLEAN MODEL DISPLAY
     # ==========================================================================
     with col_audit:
         st.subheader("🖥 Audit Summary")
 
         audit_summary = _audit_summary_for_user(audit_folder, selected_user)
 
-        # Top line: key identity metrics
+        # ======================================================================
+        # MODEL DISPLAY - CLEAN BREAKDOWN
+        # ======================================================================
         m1, m2, m3 = st.columns(3)
-        m1.metric("Model Identifier", audit_summary.get("Model Identifier", "—"))
+        
+        product_name = audit_summary.get("Model Product Name", "—")
+        screen_size = audit_summary.get("Model Screen Size")
+        model_year = audit_summary.get("Model Year")
+        chip_variant = audit_summary.get("Model Chip", "—")
+        
+        with m1:
+            # If unknown model
+            if "⚠️" in product_name:
+                st.metric("Machine Model", product_name)
+            else:
+                # Show product name as main metric
+                st.metric("Machine Model", product_name)
+                
+                # Build details line
+                details = []
+                if screen_size:
+                    details.append(screen_size)
+                if chip_variant and chip_variant != "—":
+                    details.append(chip_variant)
+                if model_year:
+                    details.append(str(model_year))
+                
+                if details:
+                    st.caption(" • ".join(details))
+        
         m2.metric("Memory (RAM)", audit_summary.get("Memory (RAM)", "—"))
         m3.metric("Serial Number", audit_summary.get("Serial Number", "—"))
 
         st.write("")
 
-        # Secondary: storage + OS + processor + Homebrew badge
+        # Show raw identifier below in small text
+        raw_model = audit_summary.get("Model Identifier (Raw)", "—")
+        if raw_model != "—" and "⚠️" not in product_name:
+            st.caption(f"*Model Identifier:* `{raw_model}`")
+
+        st.divider()
+
+        # ======================================================================
+        # LOGGED-IN USER INFO ⭐ NEW
+        # ======================================================================
+        logged_user = audit_summary.get("Logged-in User", "—")
+        login_name = audit_summary.get("Login Name", "—")
+        
+        if logged_user != "—" or login_name != "—":
+            u1, u2 = st.columns(2)
+            if logged_user != "—":
+                u1.metric("Logged-in User", logged_user)
+            if login_name != "—":
+                u2.metric("Login Name", f"`{login_name}`")
+            st.divider()
+
+        # ======================================================================
+        # STORAGE + OS + HOMEBREW
+        # ======================================================================
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Disk Capacity", audit_summary.get("Hard Drive Capacity", "—"))
         c2.metric("Available Space", audit_summary.get("Available Space", "—"))
-        c3.metric("macOS Version", audit_summary.get("macOS Version", "—"))
+        
+        # macOS Version (friendly) with Apple Intelligence badge
+        macos_display = audit_summary.get("macOS Version", "—")
+        supports_ai = audit_summary.get("Supports Apple Intelligence", False)
+        
+        if supports_ai and macos_display != "—":
+            c3.success(f"**macOS:** {macos_display}\n🤖 Apple Intelligence")
+        else:
+            c3.metric("macOS Version", macos_display)
+        
+        # Show raw version below
+        raw_version = audit_summary.get("macOS Version (Raw)", "—")
+        if raw_version != "—" and macos_display != "—":
+            c3.caption(f"`{raw_version}`")
 
+        # Homebrew badge
         hb = str(audit_summary.get("Homebrew Installed", "Unknown"))
         if hb.lower() == "yes":
             c4.success("🍺 Homebrew: Installed")
@@ -336,7 +393,6 @@ def render_main_section(
     # GOOGLE ENRICHMENT (HIDDEN WHEN NOT AVAILABLE)
     # ==========================================================================
     if not google_enabled:
-        # Nothing Google-related should appear
         return
 
     with st.expander("📊 Google enrichment", expanded=False):
