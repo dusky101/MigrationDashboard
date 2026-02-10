@@ -232,6 +232,8 @@ pyrightconfig.json
 # Custom rules
 status_tracker.csv
 config.json
+audit_processed_csvs/
 
 
+Audit_Report_Marc_Oliff.csv
 

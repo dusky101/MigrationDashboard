@@ -1,2 +1,6 @@
-streamlit
-pandas
+pandas==2.3.3
+pyinstaller==6.18.0
+pyinstaller-hooks-contrib==2026.0
+streamlit==1.54.0
+xlsxwriter==3.2.9
+plotly==6.5.2

@@ -1,152 +1,125 @@
+"""
+Migration Mission Control - Entrypoint
+
+Pure data loader and session state manager.
+This page handles all data loading and immediately redirects to Mission Control.
+"""
+
 import streamlit as st
 import os
-import platform
 import json
-from googleimports import load_google_data
+import pandas as pd
+import zipfile
+import shutil
+import tempfile
 
-# --- IMPORT NEW MODULES ---
-from header import render_header
-from main_section import render_main_section, load_status
-from data_section import render_data_section
+# ============================================================================
+# IMPORTS
+# ============================================================================
+from core.status_tracker import load_status
+from core.zip_processor import process_incoming_zips
+from data_loaders.audit_loader import load_audit_data
+from ui.styles import get_custom_css
 
-# --- PAGE CONFIG ---
-st.set_page_config(page_title="Migration Mission Control", layout="wide", page_icon="🚀")
-
-# --- UI TWEAK: COMPACT SIDEBAR ---
-st.markdown(
-    """
-    <style>
-    [data-testid="stSidebar"] {
-        min-width: 300px;
-        max-width: 300px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
+# ============================================================================
+# PAGE CONFIG
+# ============================================================================
+st.set_page_config(
+    page_title="Migration Intelligence Platform",
+    page_icon="🚀",
+    layout="wide"
 )
 
-# --- CONFIGURATION MANAGER ---
+# Hide this page from sidebar navigation
+st.markdown("""
+<style>
+    [data-testid="stSidebarNav"] ul li:first-child {
+        display: none;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# ============================================================================
+# APPLY CUSTOM CSS STYLING
+# ============================================================================
+st.markdown(get_custom_css(), unsafe_allow_html=True)
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 CONFIG_FILE = "config.json"
 
+# Local internal folder where app stores extracted audit CSVs
+INTERNAL_CSV_STORE = os.path.join(os.getcwd(), "audit_processed_csvs")
+os.makedirs(INTERNAL_CSV_STORE, exist_ok=True)
+
+# A separate temp folder for uploaded audit files
+if "UPLOAD_WORK_DIR" not in st.session_state:
+    st.session_state["UPLOAD_WORK_DIR"] = tempfile.mkdtemp(prefix="mig_audit_uploads_")
+
+UPLOAD_WORK_DIR = st.session_state["UPLOAD_WORK_DIR"]
+
+
 def load_config():
+    """Load configuration from JSON file."""
     if os.path.exists(CONFIG_FILE):
         try:
-            with open(CONFIG_FILE, "r") as f:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except:
+        except Exception:
             pass
+    
     return {
-        "google_path": os.path.join(os.getcwd(), "google_data"),
-        "audit_path": os.path.join(os.getcwd(), "audit_reports")
+        "zips_path": os.path.join(os.getcwd(), "audit_zips"),
     }
 
-def save_config(google_path, audit_path):
-    data = {"google_path": google_path, "audit_path": audit_path}
-    try:
-        with open(CONFIG_FILE, "w") as f:
-            json.dump(data, f)
-    except Exception as e:
-        print(f"Error saving config: {e}")
 
-# --- HELPER: WINDOWS FOLDER PICKER ---
-def select_folder_windows():
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
-        folder_path = filedialog.askdirectory()
-        root.destroy()
-        return folder_path
-    except Exception as e:
-        return None
-
-# --- SIDEBAR: SETTINGS UI ---
-st.sidebar.title("⚙️ Settings")
-
-if 'config_loaded' not in st.session_state:
+# ============================================================================
+# INITIALIZE SESSION STATE
+# ============================================================================
+if "config_loaded" not in st.session_state:
     saved_config = load_config()
-    st.session_state['google_path'] = saved_config.get("google_path", "")
-    st.session_state['audit_path'] = saved_config.get("audit_path", "")
-    st.session_state['config_loaded'] = True
+    st.session_state["zips_path"] = saved_config.get("zips_path", "")
+    st.session_state["config_loaded"] = True
 
-def render_smart_path_input(title, icon, session_key, help_text):
-    st.sidebar.markdown(f"### {icon} {title}")
-    current_os = platform.system()
-    
-    if current_os == "Windows":
-        col1, col2 = st.sidebar.columns([1, 2])
-        with col1:
-            if st.button("Browse", key=f"btn_{session_key}"):
-                new_path = select_folder_windows()
-                if new_path:
-                    st.session_state[session_key] = new_path
-                    save_config(st.session_state['google_path'], st.session_state['audit_path'])
-                    st.rerun()
-        with col2:
-            st.sidebar.caption(f"Current: `{os.path.basename(st.session_state[session_key])}`")
-    else:
-        new_val = st.sidebar.text_input(
-            "Paste Folder Path", 
-            value=st.session_state[session_key], 
-            key=f"input_{session_key}", 
-            help=help_text
-        )
-        if new_val != st.session_state[session_key]:
-             st.session_state[session_key] = new_val.strip('"').strip("'")
-             save_config(st.session_state['google_path'], st.session_state['audit_path'])
+# ============================================================================
+# INGEST AUDIT DATA
+# ============================================================================
+zips_folder = st.session_state.get("zips_path", "")
 
-    path = st.session_state[session_key]
-    if os.path.isdir(path):
-        st.sidebar.success(f"✅ Linked")
-    else:
-        st.sidebar.error("❌ Not found")
-    st.sidebar.divider()
+# Process zip files from folder
+if os.path.isdir(zips_folder):
+    new_count = process_incoming_zips(zips_folder, INTERNAL_CSV_STORE)
+    if new_count > 0:
+        st.toast(f"📦 Extracted {new_count} new audit reports!", icon="✅")
 
-render_smart_path_input("Google Data", "📊", "google_path", "Folder with Google CSVs")
-render_smart_path_input("Audit Reports", "💻", "audit_path", "Folder with Swift App CSVs")
+# Check if audit data exists
+audit_data_available = False
+if os.path.isdir(INTERNAL_CSV_STORE):
+    audit_csvs = [f for f in os.listdir(INTERNAL_CSV_STORE) if f.lower().endswith(".csv")]
+    audit_data_available = len(audit_csvs) > 0
 
-# --- SIDEBAR: SHUTDOWN CONTROL (NEW) ---
-# Since we run with --windowed, users have no console to close. 
-# We MUST provide a way to kill the process.
-# st.sidebar.divider()
-st.sidebar.markdown("### 🛑 App Control")
-st.sidebar.caption("When finished, click below to close the application safely.")
+# ============================================================================
+# LOAD DATA INTO SESSION STATE
+# ============================================================================
+users_df = pd.DataFrame()
 
-if st.sidebar.button("Quit Application", type="primary", use_container_width=True):
-    st.sidebar.warning("Shutting down... You can close this tab.")
-    # os._exit(0) forces an immediate, hard exit of the python process.
-    os._exit(0)
+if audit_data_available:
+    try:
+        users_df = load_audit_data(INTERNAL_CSV_STORE)
+    except Exception as e:
+        st.error(f"Error loading audit data: {e}")
 
-# --- MAIN APP ORCHESTRATOR ---
+# Load status tracker
+status_df = load_status()
 
-google_folder = st.session_state['google_path']
-audit_folder = st.session_state['audit_path']
+# Store data in session state for pages to access
+st.session_state["audit_folder"] = INTERNAL_CSV_STORE
+st.session_state["users_df"] = users_df
+st.session_state["status_df"] = status_df
 
-save_config(google_folder, audit_folder)
-
-if not os.path.isdir(google_folder):
-    st.warning("Waiting for Google Data folder...")
-    st.stop()
-
-with st.spinner("Loading Data..."):
-    google_users = load_google_data(google_folder)
-    # Note: load_status is now imported from main_section.py
-    status_df = load_status()
-
-if google_users.empty:
-    st.warning(f"No CSV data found in: `{google_folder}`")
-    st.stop()
-
-# 1. RENDER HEADER (Search & Progress)
-selected_user = render_header(google_users, status_df)
-
-if selected_user:
-    # 2. RENDER MAIN SECTION (Dashboard)
-    render_main_section(selected_user, google_users, status_df)
-    
-    # 3. RENDER DATA SECTION (Audit Tabs & Explorer)
-    render_data_section(audit_folder, selected_user, google_users)
-else:
-    st.info("👋 Welcome to Mission Control! Please search for a user above to begin.")
+# ============================================================================
+# AUTO-REDIRECT TO MISSION CONTROL
+# ============================================================================
+# Automatically switch to Mission Control page
+st.switch_page("pages/1_🚀_Mission_Control.py")
