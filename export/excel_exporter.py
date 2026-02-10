@@ -2,8 +2,8 @@
 Excel Report Generator
 
 Generates comprehensive Excel reports with:
-- Model identifier transformations (Mac16,7 → MacBook Pro 16-inch M4 Max)
-- macOS version transformations (Version 24.2 → macOS 15 Sequoia 15.2)
+- Model identifier transformations (Mac16,7 â†’ MacBook Pro 16-inch M4 Max)
+- macOS version transformations (Version 24.2 â†’ macOS 15 Sequoia 15.2)
 - Email address extraction from audit data
 - Logged-in user information from audit
 - Conditional formatting for warnings
@@ -156,15 +156,15 @@ def _extract_email_from_audit(df: pd.DataFrame) -> str:
 
 
 # -----------------------------------------------------------------------------
-# 4) Deep data extraction from audit ⭐ WITH MODEL, EMAIL & USER TRANSFORMATIONS
+# 4) Deep data extraction from audit â­ WITH MODEL, EMAIL & USER TRANSFORMATIONS
 # -----------------------------------------------------------------------------
 def get_comprehensive_machine_data(audit_path: str) -> dict:
     """
     Extracts key values from the audit CSV with transformations:
-    - Model identifiers → Friendly names
-    - macOS versions → Marketing names
-    - Email accounts → Actual email addresses
-    - Logged-in user → User name and login name
+    - Model identifiers â†’ Friendly names
+    - macOS versions â†’ Marketing names
+    - Email accounts â†’ Actual email addresses
+    - Logged-in user â†’ User name and login name
     
     Returns both friendly names and original codes for IT reference.
     """
@@ -180,9 +180,9 @@ def get_comprehensive_machine_data(audit_path: str) -> dict:
         "OS Version Code": "-",
         "Disk Capacity": "-",
         "Available Space": "-",
-        "Email Address": "-",  # ⭐ Actual email from audit
-        "Logged-in User": "-",  # ⭐ NEW: User's full name
-        "Login Name": "-",      # ⭐ NEW: User's login name
+        "Email Address": "-",  # â­ Actual email from audit
+        "Logged-in User": "-",  # â­ NEW: User's full name
+        "Login Name": "-",      # â­ NEW: User's login name
         # Media
         "Music Library Size (GB)": "",
         "Photos Library Size (GB)": "",
@@ -206,12 +206,12 @@ def get_comprehensive_machine_data(audit_path: str) -> dict:
         return data
 
     # =========================================================================
-    # EMAIL ADDRESS EXTRACTION ⭐
+    # EMAIL ADDRESS EXTRACTION â­
     # =========================================================================
     data["Email Address"] = _extract_email_from_audit(df)
 
     # =========================================================================
-    # LOGGED-IN USER EXTRACTION ⭐ NEW
+    # LOGGED-IN USER EXTRACTION â­ NEW
     # =========================================================================
     logged_user = _get_first_details(df, "System Specifications", "Logged-in User")
     if logged_user:
@@ -222,7 +222,7 @@ def get_comprehensive_machine_data(audit_path: str) -> dict:
         data["Login Name"] = login_name
 
     # =========================================================================
-    # MODEL IDENTIFIER TRANSFORMATION ⭐
+    # MODEL IDENTIFIER TRANSFORMATION â­
     # =========================================================================
     raw_model = _get_first_details(df, "System Specifications", "Model Identifier")
     if raw_model:
@@ -234,7 +234,7 @@ def get_comprehensive_machine_data(audit_path: str) -> dict:
         data["Model Chip"] = chip_variant if chip_variant != "Unknown" else "-"
 
     # =========================================================================
-    # macOS VERSION TRANSFORMATION ⭐
+    # macOS VERSION TRANSFORMATION â­
     # =========================================================================
     raw_version = _get_first_details(df, "System Specifications", "macOS Version") or _get_first_details(df, "System Specifications", "OS Version")
     if raw_version:
@@ -537,7 +537,18 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
             brew_rows.extend(extracted_brew)
 
     hardware_df = pd.DataFrame(hardware_rows).set_index("User") if hardware_rows else pd.DataFrame()
-    full_report = master_df.join(hardware_df, how="left")
+    
+    # Join with suffix to handle duplicate columns
+    full_report = master_df.join(hardware_df, how="left", rsuffix="_audit")
+    
+    # If there are duplicate columns, prefer audit data (more accurate)
+    duplicate_cols = [col for col in full_report.columns if col.endswith("_audit")]
+    for col in duplicate_cols:
+        original_col = col.replace("_audit", "")
+        if original_col in full_report.columns:
+            # Use audit data if available, otherwise keep original
+            full_report[original_col] = full_report[col].fillna(full_report[original_col])
+            full_report = full_report.drop(columns=[col])
 
     # Sanitise all cells
     full_report = full_report.map(sanitize_for_excel)
@@ -550,9 +561,9 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
     priority_cols = [
         "Status",
         "Notes",
-        "Email Address",          # ⭐ Actual email from audit
-        "Logged-in User",         # ⭐ NEW: User's full name
-        "Login Name",             # ⭐ NEW: User's login name
+        "Email Address",          # â­ Actual email from audit
+        "Logged-in User",         # â­ NEW: User's full name
+        "Login Name",             # â­ NEW: User's login name
         "Machine Model",
         "Model Chip",
         "Model Code",
@@ -669,9 +680,9 @@ def generate_excel_report(google_df, status_df, audit_folder, filtered_indices=N
             if col_name == "Email Address":
                 ws_data.set_column(i, i, 32, text_wrap)  # Email Address
             elif col_name == "Logged-in User":
-                ws_data.set_column(i, i, 24, text_wrap)  # ⭐ NEW
+                ws_data.set_column(i, i, 24, text_wrap)  # â­ NEW
             elif col_name == "Login Name":
-                ws_data.set_column(i, i, 18, centered)   # ⭐ NEW
+                ws_data.set_column(i, i, 18, centered)   # â­ NEW
             elif col_name == "Machine Model":
                 ws_data.set_column(i, i, 40, text_wrap)
             elif col_name in ["Model Code", "OS Version Code"]:

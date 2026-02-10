@@ -1,7 +1,7 @@
 """
 Main Section Component
 
-Renders the primary user dashboard with workflow, audit summary, and Google enrichment.
+Renders the primary user dashboard with workflow and audit summary.
 Integrates model identifier and macOS version transformations.
 """
 
@@ -19,30 +19,6 @@ from models.mac_models import (
     get_model_year
 )
 from models.macos_versions import get_macos_friendly_name, supports_apple_intelligence
-
-
-def _google_data_available(google_users: pd.DataFrame) -> bool:
-    """
-    Determines whether we should show Google-dependent UI.
-    Treat Google as 'available' only if:
-      - dataframe is non-empty, AND
-      - it has at least one of the typical Google columns we rely on.
-    """
-    if google_users is None or google_users.empty:
-        return False
-
-    google_signal_cols = {
-        "Org Unit Path",
-        "Drive storage used (MB)",
-        "Gmail storage used (MB)",
-        "Photos storage used (MB)",
-        "Groups",
-        "Role",
-        "User account status",
-        "Last Login Time",
-        "Recent Email Activity (30d)",
-    }
-    return any(c in google_users.columns for c in google_signal_cols)
 
 
 def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
@@ -67,8 +43,8 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
         "macOS Version (Raw)": "—",
         "Supports Apple Intelligence": False,
         "Homebrew Installed": "Unknown",
-        "Logged-in User": "—",  # ⭐ NEW
-        "Login Name": "—",      # ⭐ NEW
+        "Logged-in User": "—",
+        "Login Name": "—",
     }
 
     if not audit_folder or not os.path.isdir(audit_folder):
@@ -98,22 +74,16 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
     summary["Memory (RAM)"] = get_spec("Memory")
     summary["Processor / Chip"] = get_spec("Processor")
     summary["Serial Number"] = get_spec("Serial Number")
-    
-    # ⭐ NEW: Logged-in user info
     summary["Logged-in User"] = get_spec("Logged-in User")
     summary["Login Name"] = get_spec("Login Name")
     
-    # ========================================================================
-    # MODEL IDENTIFIER TRANSFORMATION ⭐
-    # ========================================================================
+    # MODEL IDENTIFIER TRANSFORMATION
     raw_model = get_spec("Model Identifier")
     summary["Model Identifier (Raw)"] = raw_model
     
     if raw_model and raw_model != "—":
         friendly_model = get_friendly_model_name(raw_model)
         summary["Model Identifier"] = friendly_model
-        
-        # Extract components
         summary["Model Product Name"] = get_model_product_name(raw_model)
         summary["Model Screen Size"] = get_model_screen_size(raw_model)
         summary["Model Year"] = get_model_year(raw_model)
@@ -123,9 +93,7 @@ def _audit_summary_for_user(audit_folder: str | None, user_key: str) -> dict:
         summary["Model Product Name"] = "—"
         summary["Model Chip"] = "—"
     
-    # ========================================================================
-    # macOS VERSION TRANSFORMATION ⭐
-    # ========================================================================
+    # macOS VERSION TRANSFORMATION
     raw_version = get_spec("macOS Version")
     summary["macOS Version (Raw)"] = raw_version
     
@@ -173,7 +141,7 @@ def _status_badge(curr_status: str) -> None:
 
 def render_main_section(
     selected_user: str,
-    google_users: pd.DataFrame,
+    users_df: pd.DataFrame,
     status_df: pd.DataFrame,
     audit_folder: str | None = None,
 ) -> None:
@@ -184,35 +152,30 @@ def render_main_section(
     - User header with status
     - Workflow form (narrow column)
     - Audit Summary with CLEAN model display (wide column)
-    - Google enrichment (collapsible)
     
     Args:
-        selected_user: User key (email)
-        google_users: DataFrame of Google user data
+        selected_user: User key (email/username)
+        users_df: DataFrame of users from audit data
         status_df: DataFrame of migration statuses
         audit_folder: Path to audit CSV folder
     """
 
     key_prefix = f"ms::{selected_user}::"
-    google_enabled = _google_data_available(google_users)
 
-    # Pull google row only if it exists
+    # Pull user row
     user_data = pd.Series(dtype="object")
-    if google_enabled and selected_user in google_users.index:
-        user_data = google_users.loc[selected_user]
+    if users_df is not None and selected_user in users_df.index:
+        user_data = users_df.loc[selected_user]
 
     # Friendly name
-    full_name = ""
-    try:
-        full_name = str(user_data.get("Admin-defined name", "")).strip()
-    except Exception:
-        full_name = ""
-
+    full_name = str(user_data.get("Admin-defined name", "")).strip()
     if not full_name:
-        if "@" in selected_user:
-            full_name = selected_user.split("@")[0].replace(".", " ").title()
-        else:
-            full_name = selected_user.replace(".", " ").title()
+        full_name = selected_user.replace(".", " ").title()
+
+    # Email
+    email = str(user_data.get("Email", "")).strip()
+    if not email and "@" in selected_user:
+        email = selected_user
 
     # Status (from tracker)
     curr_status = "Not Started"
@@ -226,8 +189,8 @@ def render_main_section(
     col_h1, col_h2 = st.columns([3, 1])
     with col_h1:
         st.markdown(f"# 👤 {full_name}")
-        if "@" in selected_user:
-            st.markdown(f"**Email:** [{selected_user}](mailto:{selected_user})")
+        if email:
+            st.markdown(f"**Email:** [{email}](mailto:{email})")
         else:
             st.markdown(f"**User Key:** `{selected_user}`")
 
@@ -289,16 +252,14 @@ def render_main_section(
                 st.rerun()
 
     # ==========================================================================
-    # AUDIT SUMMARY (WIDE) ⭐ WITH CLEAN MODEL DISPLAY
+    # AUDIT SUMMARY (WIDE) WITH CLEAN MODEL DISPLAY
     # ==========================================================================
     with col_audit:
         st.subheader("🖥 Audit Summary")
 
         audit_summary = _audit_summary_for_user(audit_folder, selected_user)
 
-        # ======================================================================
         # MODEL DISPLAY - CLEAN BREAKDOWN
-        # ======================================================================
         m1, m2, m3 = st.columns(3)
         
         product_name = audit_summary.get("Model Product Name", "—")
@@ -311,7 +272,6 @@ def render_main_section(
             if "⚠️" in product_name:
                 st.metric("Machine Model", product_name)
             else:
-                # Show product name as main metric
                 st.metric("Machine Model", product_name)
                 
                 # Build details line
@@ -338,9 +298,7 @@ def render_main_section(
 
         st.divider()
 
-        # ======================================================================
-        # LOGGED-IN USER INFO ⭐ NEW
-        # ======================================================================
+        # LOGGED-IN USER INFO
         logged_user = audit_summary.get("Logged-in User", "—")
         login_name = audit_summary.get("Login Name", "—")
         
@@ -352,9 +310,7 @@ def render_main_section(
                 u2.metric("Login Name", f"`{login_name}`")
             st.divider()
 
-        # ======================================================================
         # STORAGE + OS + HOMEBREW
-        # ======================================================================
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Disk Capacity", audit_summary.get("Hard Drive Capacity", "—"))
         c2.metric("Available Space", audit_summary.get("Available Space", "—"))
@@ -386,119 +342,3 @@ def render_main_section(
         proc = audit_summary.get("Processor / Chip", "—")
         if proc and proc != "—":
             st.caption(f"**Processor / Chip:** {proc}")
-
-    st.divider()
-
-    # ==========================================================================
-    # GOOGLE ENRICHMENT (HIDDEN WHEN NOT AVAILABLE)
-    # ==========================================================================
-    if not google_enabled:
-        return
-
-    with st.expander("📊 Google enrichment", expanded=False):
-        g1, g2 = st.columns([1.1, 1.1])
-
-        # --- Storage & Groups ---
-        with g1:
-            st.subheader("☁️ Storage")
-
-            def _get_mb(col_name: str) -> float:
-                try:
-                    return float(user_data.get(col_name, 0) or 0)
-                except Exception:
-                    return 0.0
-
-            drive = _get_mb("Drive storage used (MB)")
-            mail = _get_mb("Gmail storage used (MB)")
-            photos = _get_mb("Photos storage used (MB)")
-            total_gb = (drive + mail + photos) / 1024
-
-            if drive == 0 and mail == 0 and photos == 0:
-                st.metric("Total Usage", "N/A")
-                st.caption("No Google storage data available.")
-            else:
-                if total_gb > 30:
-                    st.metric("Total Usage", f"{total_gb:.2f} GB", delta="Heavy", delta_color="inverse")
-                else:
-                    st.metric("Total Usage", f"{total_gb:.2f} GB")
-                st.caption(f"Drive: {drive/1024:.2f} GB | Mail: {mail/1024:.2f} GB")
-
-            st.divider()
-
-            groups_col_exists = "Groups" in google_users.columns
-            groups_raw = user_data.get("Groups", []) if groups_col_exists else []
-
-            if isinstance(groups_raw, str):
-                groups = [g.strip() for g in groups_raw.split(",")]
-            elif isinstance(groups_raw, list):
-                groups = groups_raw
-            else:
-                groups = []
-
-            groups = [g for g in groups if g]
-            groups.sort()
-
-            st.subheader(f"👥 Groups ({len(groups)})")
-
-            if not groups_col_exists:
-                st.info("Group membership not available.")
-            elif groups:
-                cols = st.columns(2)
-                for i, group_name in enumerate(groups):
-                    with cols[i % 2]:
-                        with st.popover(group_name, width='stretch'):
-                            st.markdown(f"**Members of `{group_name}`**")
-
-                            def is_in_group(user_groups_str):
-                                if not isinstance(user_groups_str, str):
-                                    return False
-                                current_user_list = [g.strip() for g in user_groups_str.split(",")]
-                                return group_name in current_user_list
-
-                            members_mask = google_users["Groups"].apply(is_in_group)
-                            members = google_users[members_mask].reset_index()
-
-                            if not members.empty:
-                                name_col = "Admin-defined name" if "Admin-defined name" in members.columns else members.columns[0]
-                                display_df = members[[name_col, "User"]].rename(columns={name_col: "Name", "User": "Email"})
-                                st.dataframe(display_df, hide_index=True, width='stretch')
-                                st.caption(f"Total: {len(members)}")
-                            else:
-                                st.info("No other members found.")
-            else:
-                st.info("No groups found")
-
-        # --- Security & Role ---
-        with g2:
-            st.subheader("🛡 Security")
-
-            role = user_data.get("Role", None)
-            if role is None or (isinstance(role, float) and pd.isna(role)) or str(role).strip() == "":
-                st.info("Role: N/A")
-            else:
-                role = str(role)
-                if role == "Super Admin":
-                    st.error(f"👑 Role: **{role}**")
-                elif role == "Delegated Admin":
-                    st.warning(f"🔧 Role: **{role}**")
-                else:
-                    st.success(f"👤 Role: **{role}**")
-
-            st.divider()
-
-            acct_status = user_data.get("User account status", None)
-            if acct_status is None or (isinstance(acct_status, float) and pd.isna(acct_status)) or str(acct_status).strip() == "":
-                st.info("Account Status: N/A")
-            else:
-                acct_status = str(acct_status)
-                if acct_status == "Active":
-                    st.success(f"Account Status: **{acct_status}**")
-                else:
-                    st.error(f"Account Status: **{acct_status}**")
-
-            last_login = user_data.get("Last Login Time", None)
-            if last_login is None or (isinstance(last_login, float) and pd.isna(last_login)) or str(last_login).strip() == "":
-                st.metric("Last Login", "N/A")
-            else:
-                last_login_str = str(last_login).split("T")[0]
-                st.metric("Last Login", last_login_str)

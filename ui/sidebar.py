@@ -1,7 +1,7 @@
 """
 Sidebar Component
 
-Renders the sidebar with data source configuration, file uploads, and reports.
+Renders the sidebar with audit data configuration, file uploads, and reports.
 """
 
 import os
@@ -44,9 +44,7 @@ def _save_sidebar_config():
     CONFIG_FILE = "config.json"
     
     data = {
-        "google_path": st.session_state.get("google_path", ""),
         "zips_path": st.session_state.get("zips_path", ""),
-        "use_google": bool(st.session_state.get("use_google", False))
     }
     
     try:
@@ -69,8 +67,7 @@ def render_folder_input(
     title: str, 
     icon: str, 
     session_key: str, 
-    help_text: str, 
-    enabled: bool = True,
+    help_text: str,
     show_info: bool = False,
     info_text: str = ""
 ):
@@ -82,36 +79,28 @@ def render_folder_input(
         icon: Emoji icon
         session_key: Session state key for this path
         help_text: Help text for manual input
-        enabled: Whether this input is enabled
         show_info: Whether to show info icon
         info_text: Info popup text
     """
-    # Header with optional info icon
     if show_info and info_text:
         col_title, col_info = st.sidebar.columns([4, 1])
         with col_title:
             st.sidebar.markdown(f"### {icon} {title}")
         with col_info:
-            st.sidebar.markdown("")  # Spacer for alignment
+            st.sidebar.markdown("")
             with st.popover("ℹ️"):
                 st.info(info_text)
     else:
         st.sidebar.markdown(f"### {icon} {title}")
     
-    if not enabled:
-        st.sidebar.caption("Disabled")
-        st.sidebar.divider()
-        return
-
     current_os = platform.system()
     tkinter_available = _check_tkinter_available()
 
-    # Show Browse button only if tkinter is available
     if tkinter_available:
         col1, col2 = st.sidebar.columns([1, 2])
         
         with col1:
-            if st.button("Browse", key=f"btn_{session_key}", width='stretch'):
+            if st.button("Browse", key=f"btn_{session_key}"):
                 new_path = select_folder_browser()
                 
                 if new_path:
@@ -130,7 +119,6 @@ def render_folder_input(
             else:
                 st.sidebar.caption("Not Set")
 
-        # Collapsible manual paste
         with st.sidebar.expander("📝 Or paste path manually", expanded=False):
             new_val = st.text_input(
                 "Folder Path",
@@ -145,7 +133,6 @@ def render_folder_input(
                 _save_sidebar_config()
                 st.rerun()
     else:
-        # Fallback: No Browse button, just text input (like old macOS behavior)
         st.sidebar.caption("💡 Paste folder path below (tkinter not available for Browse button)")
         
         new_val = st.sidebar.text_input(
@@ -162,7 +149,6 @@ def render_folder_input(
             _save_sidebar_config()
             st.rerun()
 
-    # Validation
     path = st.session_state.get(session_key, "")
     if path:
         if os.path.isdir(path):
@@ -173,57 +159,21 @@ def render_folder_input(
     st.sidebar.divider()
 
 
-def render_sidebar(google_users: pd.DataFrame, status_df: pd.DataFrame, audit_folder: str):
+def render_sidebar(users_df: pd.DataFrame, status_df: pd.DataFrame, audit_folder: str):
     """
-    Render complete sidebar with all configuration options.
+    Render complete sidebar with audit data configuration and reports.
     
     Args:
-        google_users: DataFrame of Google user data
+        users_df: DataFrame of users (from audit data)
         status_df: DataFrame of migration statuses
         audit_folder: Path to audit CSV folder (for exports)
         
     Returns:
-        Tuple of (uploaded_audit_files, uploaded_google_csv)
+        uploaded_audit_files
     """
     
     st.sidebar.title("⚙️ Data Sources")
 
-    # =========================================================================
-    # GOOGLE DATA TOGGLE
-    # =========================================================================
-    st.sidebar.markdown("### 📊 Google (Optional)")
-    
-    use_google = st.sidebar.toggle(
-        "Enable Google data",
-        value=bool(st.session_state.get("use_google", False)),
-        help="If disabled (or if no Google CSV is provided), all Google sections are hidden.",
-    )
-    
-    if use_google != st.session_state.get("use_google"):
-        st.session_state["use_google"] = use_google
-        _save_sidebar_config()
-        st.rerun()
-
-    # =========================================================================
-    # FOLDER PATH INPUTS
-    # =========================================================================
-    if st.session_state.get("use_google", False):
-        render_folder_input(
-            "Google CSVs",
-            "📊",
-            "google_path",
-            "Folder with UserStats.csv (optional)"
-        )
-    else:
-        render_folder_input(
-            "Google CSVs",
-            "📊",
-            "google_path",
-            "Optional",
-            enabled=False
-        )
-
-    # Audit Zips with info icon
     render_folder_input(
         "Audit Zips Folder",
         "📦",
@@ -244,37 +194,20 @@ def render_sidebar(google_users: pd.DataFrame, status_df: pd.DataFrame, audit_fo
         """
     )
 
-    # =========================================================================
-    # FILE UPLOADERS (Automatic processing on upload)
-    # =========================================================================
-    st.sidebar.markdown("### ⬆️ Upload (Optional)")
-    st.sidebar.caption("Upload Audit CSV/ZIP here instead of using folder paths. Google remains optional.")
+    st.sidebar.markdown("### ⬆️ Upload Audit Reports")
+    st.sidebar.caption("Drag and drop CSV or ZIP files here")
 
-    # Audit file uploader (always visible)
     uploaded_audit_files = st.sidebar.file_uploader(
         "Audit Reports (CSV/ZIP)",
         type=["csv", "zip"],
         accept_multiple_files=True,
         key="audit_uploader",
-        help="Drag and drop files here or click Browse files"
+        help="Drag and drop files here or click Browse files",
+        label_visibility="collapsed"
     )
-
-    # Google CSV uploader (only when Google is enabled)
-    uploaded_google_csv = None
-    if st.session_state.get("use_google", False):
-        uploaded_google_csv = st.sidebar.file_uploader(
-            "Google Users CSV (optional)",
-            type=["csv"],
-            accept_multiple_files=False,
-            key="google_uploader",
-            help="Drag and drop your Google Workspace export CSV"
-        )
 
     st.sidebar.divider()
 
-    # =========================================================================
-    # REPORTS SECTION
-    # =========================================================================
     st.sidebar.markdown("### 📥 Reports")
 
     if st.sidebar.button(
@@ -284,7 +217,7 @@ def render_sidebar(google_users: pd.DataFrame, status_df: pd.DataFrame, audit_fo
     ):
         with st.spinner("Generating..."):
             try:
-                excel_full = generate_excel_report(google_users, status_df, audit_folder)
+                excel_full = generate_excel_report(users_df, status_df, audit_folder)
                 st.session_state["full_excel"] = excel_full
                 st.toast("✅ Excel report ready for download!", icon="📄")
             except Exception as e:
@@ -302,12 +235,8 @@ def render_sidebar(google_users: pd.DataFrame, status_df: pd.DataFrame, audit_fo
     st.sidebar.caption("Tip: You can export only selected users from the main page after filtering.")
     st.sidebar.divider()
 
-    # =========================================================================
-    # QUIT BUTTON
-    # =========================================================================
     if st.sidebar.button("Quit Application", type="primary", width='stretch'):
         st.sidebar.warning("Shutting down...")
         os._exit(0)
 
-    # Return uploaded files for processing in app.py
-    return uploaded_audit_files, uploaded_google_csv
+    return uploaded_audit_files

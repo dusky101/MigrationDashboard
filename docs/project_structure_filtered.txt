@@ -1,0 +1,219 @@
+--- Folder Structure ---
+[.git]
+    ├── COMMIT_EDITMSG
+    ├── FETCH_HEAD
+    ├── HEAD
+    ├── ORIG_HEAD
+    ├── config
+    ├── description
+    ├── [hooks]
+        ├── applypatch-msg.sample
+        ├── commit-msg.sample
+        ├── fsmonitor-watchman.sample
+        ├── post-update.sample
+        ├── pre-applypatch.sample
+        ├── pre-commit.sample
+        ├── pre-merge-commit.sample
+        ├── pre-push.sample
+        ├── pre-rebase.sample
+        ├── pre-receive.sample
+        ├── prepare-commit-msg.sample
+        ├── push-to-checkout.sample
+        ├── sendemail-validate.sample
+        └── update.sample
+    ├── index
+    ├── [info]
+        └── exclude
+    ├── [logs]
+        ├── HEAD
+        └── [refs]
+            ├── [heads]
+                ├── [feature]
+                    └── sharepoint-sync
+                ├── main
+                └── total-enhancement-of-code
+            └── [remotes]
+                └── [origin]
+                    ├── HEAD
+                    ├── [feature]
+                        └── sharepoint-sync
+                    └── total-enhancement-of-code
+    ├── [objects]
+        ├── [03]
+            └── 3861139f4064fe97cc268ccd242ca3e2f2ef07
+        ├── [04]
+            └── 5a3a4bfde1ccfaa339fd7643ffd9052529a3bb
+        ├── [06]
+            └── 371b245fb558575f478ad04ced4c277eedec48
+        ├── [07]
+            ├── 4639420edbdb1a6cf4920a74235140468766af
+            └── cbd3f936bb660c40f0065a3e7e1c6f4d96fa74
+        ├── [0a]
+            └── d5319087bd86238457f06f0cc68d37b8b10023
+        ├── [0b]
+            └── fd8021add373d3deeae8972e2ff64b3ef9ab2b
+        ├── [15]
+            └── 619d53f0ed4c101222535a735ca5583d4bb20c
+        ├── [17]
+            └── f384982c62f5070e97d5426d36d4141748ba9e
+        ├── [2b]
+            └── 82f64ca017ddc1a1604f48b43fda6193b7638e
+        ├── [2d]
+            └── f43e00bff82dcb72f7326045583fb19e0aed4c
+        ├── [2f]
+            └── 29954818d07531580b451fde7ea02b74979745
+        ├── [4b]
+            └── 9300989c4b4931c276b4d6c8ec1a9d49d70114
+        ├── [51]
+            └── e05891f568ba62e14072fab138017e8308c2f4
+        ├── [5f]
+            └── dee6218d686c16082a7c33196a04f15491c774
+        ├── [64]
+            └── 861a99152c3b63d32e2ac0c2a8a66d9f80d010
+        ├── [68]
+            └── d222238b687695d55fa11409d7defabd8fe203
+        ├── [70]
+            └── 8efcd26c666e5e2ecf7844fc4456d23822f357
+        ├── [76]
+            └── 63bb854145e3a81461efaccf3bb0e30e4d1ba2
+        ├── [79]
+            └── 32e6d19c269b2020930601841765a72d2d719b
+        ├── [7b]
+            └── f5b68dc4643d75f629e1c32fb813d4cdea4b8a
+        ├── [80]
+            └── 979fee896aa30b3c01060bc184c3ff4d110943
+        ├── [84]
+            └── 3b76a3048538279c2291b48d95b9321be50e91
+        ├── [88]
+            └── 355f28b408f9a2ce0cb7ac39a3793bd36703bb
+        ├── [8c]
+            └── 42b1846e579d0cb38d0d606f2fa637ed7689d0
+        ├── [95]
+            ├── 0985dddc341f4d358da0a51c80dfb1ab3bf986
+            └── 376e1fad4ced81968fc2d16776339c8770dd29
+        ├── [99]
+            └── 3dd1a4076d7e8db212773f2f4f54e8993f456f
+        ├── [a7]
+            ├── 0a0fdfde7dc34117551f048d149ac121b9f45e
+            └── d43925438c1240ff6f23c8f2f48f77fae70652
+        ├── [ab]
+            └── 83058d173e3546e73de50f4198bdda9a061066
+        ├── [b7]
+            └── ece476bb7dcfdfae4df21923010971f2a6a1ce
+        ├── [c9]
+            └── e8c61708f5f296d746c2fe4575e20261626489
+        ├── [d3]
+            └── 85c4fd8e500bd54e4de81bd27c2e41768d79e1
+        ├── [d8]
+            └── a17a8473b5648927bcdb142f3b2fca0e28c09c
+        ├── [d9]
+            └── 03575552dda1c26d9f7930dd7b9054115acf1b
+        ├── [e1]
+            └── 94122167047f3ee8ef1d307791caff9c168b3f
+        ├── [e6]
+            └── 9de29bb2d1d6434b8b29ae775ad8c2e48c5391
+        ├── [f3]
+            └── 4d82d1ec034125ec3375b66ea43d9ff8b1b7a4
+        ├── [f5]
+            └── cca2b3e39bf55cba46fc2820f62501fca9b428
+        ├── [f7]
+            └── a899c16d26f633bbb69486af9fadbe456caaf7
+        ├── [fa]
+            ├── 2b260b51d28e7bd3530032fdc3fb4a738b9482
+            └── 5d185be65c63406bcaf75e8a1739042c03c984
+        ├── [fd]
+            ├── 16152651a364b79e7e1c89c32ce5215ff54cc8
+            └── 3e51f6d1d2844329c1c142a1b2560a21da2f4a
+        ├── [fe]
+            └── 631e88c2c314c9332da1e79e1597808900bb81
+        ├── [info]
+        └── [pack]
+            ├── pack-bc68776c46c74e622f9a44aafd9d2fb7512fd8c0.idx
+            ├── pack-bc68776c46c74e622f9a44aafd9d2fb7512fd8c0.pack
+            └── pack-bc68776c46c74e622f9a44aafd9d2fb7512fd8c0.rev
+    ├── packed-refs
+    └── [refs]
+        ├── [heads]
+            ├── [feature]
+                └── sharepoint-sync
+            ├── main
+            └── total-enhancement-of-code
+        ├── [remotes]
+            └── [origin]
+                ├── HEAD
+                ├── [feature]
+                    └── sharepoint-sync
+                └── total-enhancement-of-code
+        └── [tags]
+.gitignore
+Launch_Dashboard.bat
+Run_Dashboard.command
+Start_App_Mac.command
+Start_App_Windows.bat
+[__pycache__]
+    ├── auditloader.cpython-312.pyc
+    ├── data_section.cpython-312.pyc
+    ├── exporter.cpython-312.pyc
+    ├── googleimports.cpython-312.pyc
+    ├── header.cpython-312.pyc
+    ├── main_section.cpython-312.pyc
+    ├── migrationaud.cpython-312.pyc
+    └── zip_processor.cpython-312.pyc
+app.py
+[audit_processed_csvs]
+    └── Audit_Report_marc.csv
+[core]
+    ├── __init__.py
+    ├── [__pycache__]
+        ├── __init__.cpython-312.pyc
+        ├── audit_parser.cpython-312.pyc
+        ├── status_tracker.cpython-312.pyc
+        └── zip_processor.cpython-312.pyc
+    ├── audit_parser.py
+    ├── status_tracker.py
+    └── zip_processor.py
+[data_loaders]
+    ├── __init__.py
+    ├── [__pycache__]
+        ├── __init__.cpython-312.pyc
+        ├── audit_loader.cpython-312.pyc
+        └── google_loader.cpython-312.pyc
+    ├── audit_loader.py
+    └── google_loader.py
+[docs]
+    └── .project_structure_filter
+[export]
+    ├── __init__.py
+    ├── [__pycache__]
+        ├── __init__.cpython-312.pyc
+        └── excel_exporter.cpython-312.pyc
+    └── excel_exporter.py
+[models]
+    ├── __init__.py
+    ├── [__pycache__]
+        ├── __init__.cpython-312.pyc
+        ├── mac_models.cpython-312.pyc
+        └── macos_versions.cpython-312.pyc
+    ├── mac_models.py
+    └── macos_versions.py
+requirements.txt
+run_dashboard.py
+[ui]
+    ├── __init__.py
+    ├── [__pycache__]
+        ├── __init__.cpython-312.pyc
+        ├── data_section.cpython-312.pyc
+        ├── header.cpython-312.pyc
+        ├── main_section.cpython-312.pyc
+        ├── sidebar.cpython-312.pyc
+        └── styles.cpython-312.pyc
+    ├── data_section.py
+    ├── header.py
+    ├── main_section.py
+    ├── sidebar.py
+    └── styles.py
+[utils]
+    ├── __init__.py
+    └── file_helpers.py
+
+--- File Contents ---
